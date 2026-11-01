@@ -6,6 +6,6 @@ APP=/opt/ridealong
 export PATH=$APP/node/bin:/usr/local/bin:/usr/bin:/bin
 export RIDEALONG_VIEWER=http://127.0.0.1:$VIEWER_PORT VIEWER_TOKEN
 OUT=$HOME/.cache/playwright-mcp
-mkdir -p -m 700 "$OUT"
+install -d -m 700 "$OUT"
 exec node "$APP/mcp/ridealong-mcp.mjs" "$@" -- \
-  npx -y @playwright/mcp@latest --cdp-endpoint http://127.0.0.1:9222 --output-dir "$OUT"
+  "$APP/mcp/node_modules/.bin/playwright-mcp" --cdp-endpoint http://127.0.0.1:9222 --output-dir "$OUT"

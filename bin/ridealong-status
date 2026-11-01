@@ -9,8 +9,11 @@ else
   echo "CDP 9222:        NOT ANSWERING"
 fi
 echo "Viewer:          @VIEWER_URL@"
-if DISPLAY=:99 import -window root -display :99 /tmp/ridealong-display.png; then
-  echo "Screenshot:      /tmp/ridealong-display.png"
+# Private: this is a picture of a logged-in browser.
+SHOT=$HOME/.cache/ridealong/display.png
+install -d -m 700 "$(dirname "$SHOT")"
+if (umask 077; DISPLAY=:99 import -window root -display :99 "$SHOT"); then
+  echo "Screenshot:      $SHOT"
 else
   echo "Screenshot:      FAILED"
 fi

@@ -4,6 +4,8 @@
 #
 #   sudo ./install.sh                     install or upgrade; network chosen automatically
 #   sudo ./install.sh --network ssh       tailscale | ssh | lan
+#   sudo ./install.sh --allow-host NAME   also accept this address (your own proxy)
+#   sudo ./install.sh --notify URL        push to this URL (e.g. ntfy) when it's your turn
 #   sudo ./install.sh --test              also run the crash tests on an upgrade
 #   sudo ./install.sh --uninstall         remove it (keeps the Brave profile)
 #
@@ -17,6 +19,8 @@ VIEWER_PORT=6086
 HTTPS_PORT=6087
 NETWORK=auto
 RUN_TESTS=no
+ALLOW_HOST=
+NOTIFY=
 SERVICES="ridealong-display ridealong-desktop ridealong-vnc ridealong-viewer ridealong-brave"
 OLD_SERVICES="agent-display agent-desktop agent-vnc agent-novnc agent-viewer agent-brave"
 
@@ -26,6 +30,8 @@ while [ $# -gt 0 ]; do
     --port) VIEWER_PORT=$2; shift 2 ;;
     --https-port) HTTPS_PORT=$2; shift 2 ;;
     --test) RUN_TESTS=yes; shift ;;
+    --allow-host) ALLOW_HOST=$2; shift 2 ;;
+    --notify) NOTIFY=$2; shift 2 ;;
     --uninstall) NETWORK=uninstall; shift ;;
     *) echo "Unknown option: $1"; exit 2 ;;
   esac
@@ -42,8 +48,13 @@ if [ "$NETWORK" = uninstall ]; then
   systemctl reset-failed 'ridealong-*' 2>/dev/null || true
   [ -f "$APP/config.env" ] && . "$APP/config.env"
   [ "${NETWORK_MODE:-}" = tailscale ] && tailscale serve --https="$HTTPS_PORT" off || true
+  if [ -n "${RIDEALONG_USER:-}" ]; then
+    sudo -u "$RIDEALONG_USER" -H "$APP/setup-agents.sh" --remove || echo "WARNING: couldn't remove the agents' ridealong entries."
+  fi
+  systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target
+  [ -f "$APP/default-target" ] && systemctl set-default "$(cat "$APP/default-target")"
   rm -rf "$APP" /usr/local/bin/ridealong-status /usr/local/bin/ridealong-prestart /usr/local/bin/ridealong-mcp
-  echo "Removed. Your Brave profile is still in ~/.ridealong-browser, and your agents still list the ridealong MCP server."
+  echo "Removed. Your Brave profile is still in ~/.ridealong-browser."
   exit 0
 fi
 
@@ -56,6 +67,11 @@ case "$(uname -m)" in
   aarch64) NODE_ARCH=arm64 ;;
   *) echo "Unsupported CPU: $(uname -m)"; exit 1 ;;
 esac
+
+# Before anything is installed, since the machine would be left half set up.
+for dm in gdm3 lightdm sddm; do
+  dpkg -s "$dm" >/dev/null 2>&1 && { echo "A display manager ($dm) is installed. Ridealong needs a server without one."; exit 1; }
+done
 
 FIRST_INSTALL=no
 systemctl is-active -q ridealong-display 2>/dev/null || FIRST_INSTALL=yes
@@ -76,9 +92,6 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
   xvfb xfce4 xfce4-terminal dbus-x11 xdotool x11vnc imagemagick \
   x11-xserver-utils adwaita-icon-theme fonts-dejavu-core brave-browser
-for dm in gdm3 lightdm sddm; do
-  dpkg -s "$dm" >/dev/null 2>&1 && { echo "A display manager ($dm) is installed. Remove it first."; exit 1; }
-done
 
 echo "=== migrating earlier installs"
 # Older versions used these names. Move the profile so logins survive.
@@ -115,6 +128,7 @@ cp -r "$SRC/viewer/public" "$SRC/viewer/server.mjs" "$SRC/viewer/package.json" "
 cp "$SRC/setup-agents.sh" "$APP/"
 chmod +x "$APP/setup-agents.sh" "$APP/scripts/"*
 (cd "$APP/viewer" && PATH=$APP/node/bin:$PATH npm ci --omit=dev --silent --no-audit --no-fund)
+(cd "$APP/mcp" && PATH=$APP/node/bin:$PATH npm ci --omit=dev --silent --no-audit --no-fund)
 # Brave keeps running a cached background script unless its file name changes,
 # even across version bumps, so every install gets a new name.
 STAMP=$(date +%s)
@@ -139,7 +153,15 @@ fi
 # serve or an SSH tunnel reaches it there.
 VIEWER_HOST=127.0.0.1
 VIEWER_TOKEN=
-[ -f "$APP/config.env" ] && OLD_TOKEN=$(. "$APP/config.env"; echo "${VIEWER_TOKEN:-}") || OLD_TOKEN=
+OLD_TOKEN='' OLD_HOSTS='' OLD_NOTIFY=''
+if [ -f "$APP/config.env" ]; then
+  OLD_TOKEN=$(. "$APP/config.env"; echo "${VIEWER_TOKEN:-}")
+  OLD_HOSTS=$(. "$APP/config.env"; echo "${ALLOWED_HOSTS:-}")
+  OLD_NOTIFY=$(. "$APP/config.env"; echo "${NOTIFY_URL:-}")
+fi
+ALLOWED_HOSTS=$OLD_HOSTS
+[ -n "$ALLOW_HOST" ] && ALLOWED_HOSTS=${ALLOWED_HOSTS:+$ALLOWED_HOSTS,}$ALLOW_HOST
+NOTIFY_URL=${NOTIFY:-$OLD_NOTIFY}
 case "$NETWORK" in
   tailscale) VIEWER_URL="https://$TAILNET_HOST:$HTTPS_PORT/" ;;
   ssh) VIEWER_URL="http://127.0.0.1:$VIEWER_PORT/" ;;
@@ -159,6 +181,8 @@ VIEWER_PORT=$VIEWER_PORT
 HTTPS_PORT=$HTTPS_PORT
 VIEWER_URL="$VIEWER_URL"
 VIEWER_TOKEN=$VIEWER_TOKEN
+ALLOWED_HOSTS=$ALLOWED_HOSTS
+NOTIFY_URL="$NOTIFY_URL"
 CONF
 chown "root:$U" "$APP/config.env"
 chmod 640 "$APP/config.env"
@@ -168,6 +192,7 @@ echo "=== systemd target and sleep"
 for w in $(systemctl list-dependencies graphical.target --plain --no-pager --depth=1 2>/dev/null | awk '{print $NF}' | grep -E '\.(service|path|timer|socket)$'); do
   [ "$w" = display-manager.service ] || systemctl add-wants multi-user.target "$w" 2>/dev/null || true
 done
+[ -f "$APP/default-target" ] || systemctl get-default > "$APP/default-target"
 systemctl set-default multi-user.target
 systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 
@@ -380,7 +405,7 @@ FAILED=no
 wait_cdp || FAILED=yes
 if [ "$RUN_TESTS" = yes ]; then
   mkdir -p "$APP/shots"
-  shot() { cp /tmp/ridealong-display.png "$APP/shots/$1.png" 2>/dev/null || true; }
+  shot() { cp "$H/.cache/ridealong/display.png" "$APP/shots/$1.png" 2>/dev/null || true; }
   check() {
     echo "--- $1"; sleep 10; wait_cdp || FAILED=yes; sleep 6; status; shot "$1"
     for s in $SERVICES; do systemctl is-active -q "$s" || { echo "$s is DOWN"; FAILED=yes; }; done

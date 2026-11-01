@@ -1,10 +1,28 @@
 #!/usr/bin/env bash
 # Registers Ridealong with the MCP clients it finds. The installer runs this as
 # the agent user; run it yourself after installing one of them later.
+#   setup-agents.sh [--remove]
 set -euo pipefail
 APP=/opt/ridealong
 . "$APP/config.env"
 PATH=$HOME/.local/bin:$PATH
+
+if [ "${1:-}" = --remove ]; then
+  command -v claude >/dev/null && claude mcp remove ridealong --scope user >/dev/null 2>&1 || true
+  command -v codex >/dev/null && codex mcp remove ridealong >/dev/null 2>&1 || true
+  command -v gemini >/dev/null && gemini mcp remove --scope user ridealong >/dev/null 2>&1 || true
+  python3 - "$HOME/.claude/CLAUDE.md" "$HOME/.hermes/config.yaml" <<'PY'
+import os, re, sys
+claude, hermes = sys.argv[1:]
+if os.path.exists(claude):
+    text = open(claude).read()
+    open(claude, "w").write(re.sub(r"\n*<!-- ridealong -->.*?<!-- /ridealong -->\n?", "\n", text, flags=re.S))
+if os.path.exists(hermes):
+    text = open(hermes).read()
+    open(hermes, "w").write(re.sub(r"^  ridealong:\n(?:^(?:    .*|)\n)*", "", text, flags=re.M))
+PY
+  exit 0
+fi
 
 if command -v claude >/dev/null; then
   claude mcp remove playwright --scope user >/dev/null 2>&1 || true
@@ -37,6 +55,14 @@ fi
 if command -v codex >/dev/null; then
   codex mcp remove ridealong >/dev/null 2>&1 || true
   codex mcp add ridealong -- ridealong-mcp --agent Codex
+  # Codex gives up on a tool after 60 seconds, and a handover can wait 10 minutes.
+  python3 - "$HOME/.codex/config.toml" <<'PY'
+import re, sys
+path = sys.argv[1]
+s = open(path).read()
+s = re.sub(r"^(\[mcp_servers\.ridealong\]\n)", r"\1tool_timeout_sec = 660\n", s, count=1, flags=re.M)
+open(path, "w").write(s)
+PY
   echo "Codex: registered"
 fi
 
