@@ -13,6 +13,7 @@ const PORT = Number(process.env.VIEWER_PORT || 6086);
 const VNC_PORT = Number(process.env.VNC_PORT || 5900);
 const CDP_PORT = Number(process.env.CDP_PORT || 9222);
 const TOKEN = process.env.VIEWER_TOKEN || "";
+const NOTIFY_URL = process.env.NOTIFY_URL || "";
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 const ACTIVITY_LIMIT = 40;
 const LONG_POLL_MS = 25000;
@@ -22,7 +23,8 @@ const state = { mode: "auto", turns: [], activity: [] };
 const sessions = new Map();
 const streams = new Set();
 let waiters = [];
-let nextTurn = 0;
+let nextTurn = Date.now(); // never reused, so an agent can tell a restart from an answer
+const answered = new Set();
 let nextSession = 0;
 let followed = null; // the session whose tab is in front
 let pinned = false;  // the human chose this, so don't move on when it goes quiet
@@ -63,9 +65,15 @@ const activateTab = () => {
 };
 
 // An agent that was killed can't say goodbye, so sessions must keep checking in.
-const closeTab = (target) => {
+const closeTab = async (target) => {
   if (!target) return;
-  fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target}`, { signal: AbortSignal.timeout(1000) }).catch(() => {});
+  const cdp = (route, init) => fetch(`http://127.0.0.1:${CDP_PORT}/json/${route}`, { signal: AbortSignal.timeout(1000), ...init });
+  try {
+    // Closing the last tab would quit Brave for everyone.
+    const open = (await (await cdp("list")).json()).filter((t) => t.type === "page");
+    if (open.length === 1) await cdp("new", { method: "PUT" });
+    await cdp(`close/${target}`);
+  } catch { /* Brave is down, and the tab with it */ }
 };
 const dropSession = (id, { closeItsTab = false } = {}) => {
   const session = sessions.get(id);
@@ -87,8 +95,12 @@ const view = () => {
   return {
     mode: state.mode, turn: state.turns[0] ?? null, waiting: Math.max(0, state.turns.length - 1),
     agent: current?.text ? { name: current.label, text: current.text, at: current.at } : null,
-    sessions: [...sessions.values()].filter((x) => x.text).map((x) => ({ id: x.id, label: x.label, followed: x.id === followed })),
+    sessions: [...sessions.values()].filter((x) => x.text).map((x) => ({
+      id: x.id, label: x.label, followed: x.id === followed, text: x.text, at: x.at,
+      needsYou: state.turns.some((t) => t.session === x.id),
+    })),
     elsewhere: followed === null && pinned,
+    turnHere: state.turns[0]?.session === followed,
     activity: state.activity, locked: locked(), paused: !canAct(),
   };
 };
@@ -126,6 +138,16 @@ const SECURITY_HEADERS = {
   "Referrer-Policy": "no-referrer",
 };
 
+// A page that points its own domain at 127.0.0.1 passes the origin check below,
+// and the browser on this machine visits untrusted pages all day. Nothing but
+// the addresses we were given should reach the viewer. A token already covers it.
+const hostname = (value) => {
+  try { return new URL(`http://${value}`).hostname; } catch { return ""; }
+};
+const ALLOWED_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", ...(process.env.ALLOWED_HOSTS || "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean)]);
+try { ALLOWED_HOSTS.add(new URL(process.env.VIEWER_URL).hostname); } catch { /* not set */ }
+const hostAllowed = (req) => Boolean(TOKEN) || ALLOWED_HOSTS.has(hostname(req.headers.host));
+
 const cookies = (req) => Object.fromEntries((req.headers.cookie || "").split(/;\s*/).map((c) => c.split("=")));
 
 // Without this, any website open on a tailnet device could drive the browser.
@@ -162,6 +184,17 @@ const readBody = (req) => new Promise((resolve, reject) => {
 });
 
 const clip = (s, n) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
+
+// A push for when nobody's looking at the viewer. Plain text, so ntfy works as is.
+const notify = (turn) => {
+  if (!NOTIFY_URL) return;
+  fetch(NOTIFY_URL, {
+    method: "POST",
+    headers: { Title: `Your turn: ${turn.agent}`, ...(process.env.VIEWER_URL ? { Click: process.env.VIEWER_URL } : {}) },
+    body: turn.reason,
+    signal: AbortSignal.timeout(5000),
+  }).catch((e) => console.error(`notify: ${e.message}`));
+};
 
 const api = {
   "GET /api/events": (req, res) => {
@@ -238,28 +271,42 @@ const api = {
     json(res, 200, {});
   },
   "POST /api/handover": async (req, res) => {
-    const { session, reason } = await readBody(req);
+    const { session, reason, minutes } = await readBody(req);
     const current = sessions.get(session);
     if (!current) return json(res, 404, {});
-    const turn = { id: ++nextTurn, session, agent: current.label, reason: clip(reason, 140), at: Date.now() };
+    const at = Date.now();
+    const turn = { id: ++nextTurn, session, agent: current.label, reason: clip(reason, 140), at, deadline: at + (Number(minutes) || 10) * 60000 };
     state.turns.push(turn);
+    current.text = "Waiting for you";
+    current.at = at;
     log(turn.agent, `Asked you: ${turn.reason}`, { ask: true });
+    notify(turn);
     publish();
     json(res, 200, { id: turn.id });
   },
   "GET /api/handover/wait": async (req, res, url) => {
     const id = Number(url.searchParams.get("id"));
     if (state.turns.some((t) => t.id === id)) await nextChange();
-    json(res, 200, { done: !state.turns.some((t) => t.id === id) });
+    const open = state.turns.some((t) => t.id === id);
+    json(res, 200, { done: answered.has(id), lost: !open && !answered.has(id) });
   },
   "POST /api/handover/cancel": async (req, res) => {
     const { id } = await readBody(req);
+    const turn = state.turns.find((t) => t.id === id);
+    if (turn) log(turn.agent, "Stopped waiting for you", { ask: true });
     state.turns = state.turns.filter((t) => t.id !== id);
     publish();
     json(res, 200, {});
   },
+  // Names the turn, so a double click or a second device can't answer the next one.
   "POST /api/done": async (req, res) => {
-    if (state.turns.shift()) log("You", "Handed back");
+    const { id } = await readBody(req);
+    const turn = state.turns.find((t) => t.id === id);
+    if (turn) {
+      state.turns = state.turns.filter((t) => t !== turn);
+      answered.add(turn.id);
+      log("You", "Handed back");
+    }
     if (!state.turns.length) pinned = false;
     if (state.mode === "control" && !state.turns.length) state.mode = "auto";
     publish();
@@ -298,6 +345,10 @@ const fromExtension = (req, url) => url.pathname === "/api/focus"
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
+  if (!hostAllowed(req)) {
+    res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
+    return res.end(`This address isn't allowed. Add ${hostname(req.headers.host)} with: sudo ./install.sh --allow-host ${hostname(req.headers.host)}`);
+  }
   const extension = fromExtension(req, url);
   if (!extension && !authorised(req, url)) {
     res.writeHead(401, { "Content-Type": "text/plain; charset=utf-8" });
@@ -321,7 +372,7 @@ const wss = new WebSocketServer({ noServer: true, handleProtocols: (p) => (p.has
 
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url, "http://localhost");
-  if (url.pathname !== "/websockify" || !authorised(req, url) || !sameOrigin(req)) return socket.destroy();
+  if (url.pathname !== "/websockify" || !hostAllowed(req) || !authorised(req, url) || !sameOrigin(req)) return socket.destroy();
   wss.handleUpgrade(req, socket, head, (ws) => {
     const vnc = net.connect(VNC_PORT, "127.0.0.1");
     vnc.on("data", (d) => { if (ws.readyState === ws.OPEN) ws.send(d); });

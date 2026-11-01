@@ -1,6 +1,6 @@
 // Groups the tabs an agent works in under its name, and tells the viewer when the
 // human picks a different tab, so the two always show the same session.
-const COLORS = { claude: "orange", hermes: "blue" };
+const COLORS = { claude: "orange", hermes: "blue", codex: "green", gemini: "yellow", cursor: "pink" };
 let queue = Promise.resolve();
 
 const group = async (tab, name) => {
@@ -32,7 +32,7 @@ chrome.tabs.onActivated.addListener(async ({ tabId }) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (msg.session && sender.tab) remember(sender.tab.id, msg.session, msg.viewer);
-  if (msg.reveal && sender.tab) chrome.tabs.update(sender.tab.id, { active: true }).catch(() => {});
+  // Any page can reach this listener, so only ever talk to the viewer on this machine.
+  if (msg.session && sender.tab && /^http:\/\/127\.0\.0\.1:\d+$/.test(msg.viewer)) remember(sender.tab.id, msg.session, msg.viewer);
   if (msg.group && sender.tab) queue = queue.then(() => group(sender.tab, msg.group)).catch(() => {});
 });

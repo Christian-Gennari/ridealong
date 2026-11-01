@@ -1,8 +1,8 @@
 // Agent Cursor. Playwright sends input straight to the page and never moves the
 // X11 pointer, so the page's mouse events and messages from ridealong-mcp
 // are the only signs of what an agent is doing. Frames forward both up; the top
-// frame draws everything. Pages can post the same messages, but all that can
-// change is what this overlay shows.
+// frame draws everything. Pages can post the same messages, so nothing here may
+// do more than change what this overlay shows. The viewer switches tabs itself.
 (() => {
   const isTop = window === window.top;
 
@@ -37,6 +37,9 @@
 
   const ORBS = {
     claude: "radial-gradient(circle at 32% 28%, #ffe0ad, #ff8f45 46%, #dc4a1c 82%, #8a2f15)",
+    codex: "radial-gradient(circle at 32% 28%, #d8fff0, #5fe0b5 48%, #16a085 84%, #0b5f55)",
+    gemini: "radial-gradient(circle at 32% 28%, #fff0c9, #ffc94d 46%, #e88a1a 84%, #a4520c)",
+    cursor: "radial-gradient(circle at 32% 28%, #ffe0ee, #ff8fc0 48%, #d6418f 84%, #8b1d5c)",
     hermes: "radial-gradient(circle at 32% 28%, #eed6ff, #a78bfa 48%, #5f7dff 84%, #3b49c9)",
   };
   const ORB = "radial-gradient(circle at 32% 28%, #f4f2ef, #cfcbc6 60%, #a8a39d)";
@@ -150,11 +153,6 @@
     chrome.runtime.sendMessage({ group: agent, session, viewer }).catch(() => {});
   };
 
-  // The session the viewer follows comes to the front. Others work in the background.
-  const reveal = (front) => {
-    if (front !== false && document.hidden) chrome.runtime.sendMessage({ reveal: true }).catch(() => {});
-  };
-
   function handle(m) {
     mount();
     if (!host) return;
@@ -173,11 +171,11 @@
       case "up":
         arrow.classList.remove("pressed"); break;
       case "status":
-        joinGroup(); reveal(m.front); wake(); label(m.text);
+        joinGroup(); wake(); label(m.text);
         if (!pos) glide(innerWidth / 2, innerHeight / 2);
         break;
       case "target":
-        joinGroup(); reveal(m.front); wake(); label(m.text);
+        joinGroup(); wake(); label(m.text);
         glide(m.left + m.width / 2, m.top + m.height / 2);
         break;
       case "hide": host.setAttribute("data-hidden", ""); break;

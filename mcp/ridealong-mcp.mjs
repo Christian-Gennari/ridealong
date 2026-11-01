@@ -25,6 +25,7 @@ const HANDOVER_MINUTES = Number(process.env.RIDEALONG_HANDOVER_MINUTES || 10);
 const GLIDE_MS = 450;
 const VIEWER = process.env.RIDEALONG_VIEWER || "http://127.0.0.1:6086";
 const VIEWER_TOKEN = process.env.VIEWER_TOKEN || "";
+const CDP = process.env.RIDEALONG_CDP || "http://127.0.0.1:9222";
 
 // Sent to every client when it connects, so the rules don't depend on one agent's config.
 const INSTRUCTIONS = "This is a real, logged-in browser shared with other agent sessions and watched by a human. " +
@@ -92,14 +93,29 @@ const viewer = async (route, { body, timeoutMs = 800 } = {}) => {
 let session = null;
 let sessionId = null;
 let label = AGENT;
+let beat = null;
+let tabReady = false;
+let myTarget = null;
 const register = () => (session ??= viewer("/api/session", { body: { agent: AGENT } })
   .then((r) => {
     label = r.label;
     sessionId = r.id;
-    setInterval(() => viewer("/api/session/beat", { body: { id: r.id } }).catch(() => {}), 10000).unref();
+    beat ??= setInterval(heartbeat, 10000).unref();
+    if (tabReady) shareTarget();
     return r.id;
   })
-  .catch(() => null));
+  .catch(() => { session = null; return null; }));
+
+// The viewer forgets everyone when it restarts, so join again with the same tab.
+const heartbeat = async () => {
+  try {
+    await viewer("/api/session/beat", { body: { id: sessionId } });
+  } catch (e) {
+    if (e.message !== "viewer: 404") return;
+    session = null;
+    await register();
+  }
+};
 
 // Tells the viewer which tab is ours, so it can bring it forward instantly.
 const TARGET_CODE = `async (page) => {
@@ -113,20 +129,54 @@ const shareTarget = async () => {
   if (!id) return;
   const r = await callChild({ name: "browser_run_code_unsafe", arguments: { code: TARGET_CODE } }, 2000).catch(() => null);
   const target = JSON.stringify(r?.result ?? "").match(/\b[0-9A-F]{32}\b/)?.[0];
-  if (target) await viewer("/api/session/target", { body: { id, target } }).catch(() => {});
+  if (!target) return;
+  myTarget = target;
+  await viewer("/api/session/target", { body: { id, target } }).catch(() => {});
+};
+
+const pages = async () => {
+  const res = await fetch(`${CDP}/json/list`, { signal: AbortSignal.timeout(1000) });
+  return (await res.json()).filter((t) => t.type === "page");
+};
+
+// Brave restarted or someone closed our tab. Without our own tab, this session
+// would land in whichever tab Playwright picks, which may be another session's.
+const noteLostTab = async () => {
+  if (!myTarget) return;
+  const open = await pages().catch(() => null);
+  if (!open || open.some((t) => t.id === myTarget)) return;
+  myTarget = null;
+  openTabs = 1;
+  closedTab();
+};
+
+// Closing the last tab would quit Brave for everyone.
+const keepBraveOpen = async () => {
+  const open = await pages().catch(() => null);
+  if (open?.length === 1) await fetch(`${CDP}/json/new`, { method: "PUT", signal: AbortSignal.timeout(1000) }).catch(() => {});
 };
 
 let ownTab = null;
+let openTabs = 0;
 let settled = false;
 const claimTab = () => (ownTab ??= register()
   .then(() => callChild({ name: "browser_tabs", arguments: { action: "new" } }))
-  .then(shareTarget)
+  .then(() => { tabReady = true; openTabs = 1; return shareTarget(); })
   .catch(() => {}));
 
+// With our last tab gone, Playwright's current tab is some other session's, and
+// the next navigation would take it over. So the next call opens a new one.
+const closedTab = () => {
+  openTabs = Math.max(0, openTabs - 1);
+  if (openTabs) return;
+  ownTab = null;
+  tabReady = false;
+  settled = false;
+};
+
 const report = async (text, quiet) => {
-  const id = await session;
-  if (!id) return { front: true };
-  return viewer("/api/activity", { body: { session: id, text, quiet } }).catch(() => ({ front: true }));
+  const id = await (session ?? register());
+  if (id) await viewer("/api/activity", { body: { session: id, text, quiet } }).catch(() => {});
 };
 
 const LONG_POLL_MS = 30000;
@@ -177,11 +227,11 @@ const QUIET = new Set(["browser_snapshot", "browser_take_screenshot", "browser_w
 const POINTED = new Set(["browser_click", "browser_hover", "browser_type", "browser_select_option"]);
 
 // Point at the element first, so the cursor arrives before the click does.
-const glideTo = async (args, text, front) => {
+const glideTo = async (args, text) => {
   const fn = `(el) => {
     el.scrollIntoViewIfNeeded?.();
     const r = el.getBoundingClientRect();
-    window.postMessage({ ...${envelope({ cmd: "target", text, front })},
+    window.postMessage({ ...${envelope({ cmd: "target", text })},
       left: r.left, top: r.top, width: r.width, height: r.height }, "*");
   }`;
   const ok = await callChild({
@@ -194,7 +244,17 @@ const glideTo = async (args, text, front) => {
 const handleCall = async (msg) => {
   const { name, arguments: args = {} } = msg.params;
 
+  await noteLostTab();
   if (name === "browser_handover") return handover(msg, args);
+  // Playwright's own version drops the shared browser connection.
+  if (name === "browser_close") {
+    if (ownTab) {
+      await keepBraveOpen();
+      await callChild({ name: "browser_tabs", arguments: { action: "close" } }, 5000).catch(() => {});
+      closedTab();
+    }
+    return reply(msg, "Closed your tab. Your next browser call opens a new one.");
+  }
 
   if (!(await gate())) {
     return reply(msg, "The human still has control of the browser. Ask them in chat before trying again.");
@@ -203,9 +263,9 @@ const handleCall = async (msg) => {
   const text = LABELS[name]?.(args);
   const params = { ...msg.params };
   if (text) {
-    const { front } = await report(text, QUIET.has(name));
-    if (POINTED.has(name) && args.target) await glideTo(args, text, front);
-    else await overlay({ cmd: "status", text, front });
+    await report(text, QUIET.has(name));
+    if (POINTED.has(name) && args.target) await glideTo(args, text);
+    else await overlay({ cmd: "status", text });
   }
   if (name === "browser_type" && args.slowly === undefined && String(args.text ?? "").length <= 80) {
     params.arguments = { ...args, slowly: true };
@@ -213,33 +273,41 @@ const handleCall = async (msg) => {
   if (name === "browser_tabs") await viewer("/api/session/tabs", { body: {} }).catch(() => {});
   const shot = name === "browser_take_screenshot";
   if (shot) await overlay({ cmd: "hide" });
-  const reply = await callChild(params);
+  if (name === "browser_tabs" && args.action === "close") await keepBraveOpen();
+  const answer = await callChild(params);
   if (shot) await overlay({ cmd: "show" });
-  if (name === "browser_tabs" && args.action !== "list") await shareTarget();
+  if (name === "browser_tabs" && args.action === "new") openTabs += 1;
+  if (name === "browser_tabs" && args.action === "close") closedTab();
+  if (name === "browser_tabs" && args.action !== "list" && ownTab) await shareTarget();
   // A navigation replaces the page that just heard from us, so introduce ourselves again.
   if (text && name === "browser_navigate") {
     await overlay({ cmd: "status", text });
     // A new tab's first load can pull it to the front, so ask for the screen back.
     if (!settled) { settled = true; await shareTarget(); }
   }
-  toClient({ ...reply, id: msg.id });
+  toClient({ ...answer, id: msg.id });
 };
 
 const reply = (msg, text) => toClient({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }] } });
 
 const handover = async (msg, { reason }) => {
   await claimTab();
+  const deadline = Date.now() + HANDOVER_MINUTES * 60000;
+  const ask = async () => viewer("/api/handover", {
+    body: { session: await (session ?? register()), reason: short(reason, 140), minutes: (deadline - Date.now()) / 60000 },
+  });
   let id;
   try {
-    ({ id } = await viewer("/api/handover", { body: { session: await session, reason: short(reason, 140) } }));
+    ({ id } = await ask());
   } catch {
     return reply(msg, "The viewer isn't running, so nobody can see this request. Ask in chat instead.");
   }
-  await overlay({ cmd: "status", text: "Waiting for you", front: true });
-  const deadline = Date.now() + HANDOVER_MINUTES * 60000;
+  await overlay({ cmd: "status", text: "Waiting for you" });
   while (Date.now() < deadline) {
     const r = await viewer(`/api/handover/wait?id=${id}`, { timeoutMs: LONG_POLL_MS }).catch(() => sleep(2000));
     if (r?.done) return reply(msg, "The human handed control back. Take a new snapshot before continuing: the page has probably changed.");
+    // The viewer restarted and lost the request, so nobody has answered it.
+    if (r?.lost) ({ id } = await ask().catch(() => ({ id })));
   }
   await viewer("/api/handover/cancel", { body: { id } }).catch(() => {});
   reply(msg, `Nobody handed control back within ${HANDOVER_MINUTES} minutes. Ask in chat instead of retrying.`);
@@ -250,13 +318,12 @@ let finishing = false;
 async function finish() {
   if (finishing) return;
   finishing = true;
-  if (ownTab) {
-    const id = await session;
-    await Promise.allSettled([
-      callChild({ name: "browser_tabs", arguments: { action: "close" } }, 1500),
-      id ? viewer("/api/session/end", { body: { id } }) : null,
-    ]);
-  }
+  const id = await session;
+  if (ownTab) await keepBraveOpen();
+  await Promise.allSettled([
+    ownTab ? callChild({ name: "browser_tabs", arguments: { action: "close" } }, 1500) : null,
+    id ? viewer("/api/session/end", { body: { id } }) : null,
+  ]);
   child.stdin.end();
   setTimeout(() => process.exit(0), 500);
 }
@@ -287,6 +354,8 @@ createInterface({ input: child.stdout }).on("line", (line) => {
     pending.delete(msg.id);
     return resolve(msg);
   }
+  // A late answer to one of our own calls, after it timed out. Clients don't know that id.
+  if (String(msg.id).startsWith("ridealong:")) return;
   if (listIds.delete(msg.id) && msg.result?.tools) msg.result.tools.push(HANDOVER_TOOL);
   if (initIds.delete(msg.id) && msg.result) {
     msg.result.instructions = [msg.result.instructions, INSTRUCTIONS].filter(Boolean).join("\n\n");
