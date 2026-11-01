@@ -213,6 +213,25 @@ const clock = (ms) => {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
 
+const saveRules = (hosts) => post("/api/rules", { hosts });
+const renderRules = () => {
+  $("rules").replaceChildren(...(view.rules ?? []).map((host) => {
+    const li = document.createElement("li");
+    const remove = document.createElement("button");
+    remove.textContent = "Remove";
+    remove.className = "link";
+    remove.setAttribute("aria-label", `Remove ${host}`);
+    remove.addEventListener("click", () => saveRules(view.rules.filter((h) => h !== host)));
+    li.append(host, remove);
+    return li;
+  }));
+};
+$("rule-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  saveRules([...(view?.rules ?? []), $("rule-host").value]);
+  $("rule-host").value = "";
+});
+
 const renderTurnClock = () => {
   const turn = view?.turn;
   if (!turn) return;
@@ -229,9 +248,13 @@ const renderTurn = () => {
   else delete document.body.dataset.agent;
   $("theme-color").content = turn ? getComputedStyle(document.body).getPropertyValue("--c").trim() : "#fdfcfc";
   if (!turn) return;
+  const approval = turn.kind === "approval";
   $("turn-orb").dataset.agent = base(turn.agent);
-  $("turn-reason").textContent = `${turn.agent}: ${turn.reason}`;
-  const fix = !view.turnHere ? `Go to ${turn.agent}'s tab` : mode === "watch" ? "Unlock the screen" : "";
+  $("turn-title").textContent = approval ? `Allow ${turn.agent}?` : "Your turn";
+  $("done-label").textContent = approval ? "Allow for 10 minutes" : "Hand back";
+  $("turn-block").hidden = !approval;
+  $("turn-reason").textContent = approval ? `${turn.agent} wants to click and type on ${turn.host}.` : `${turn.agent}: ${turn.reason}`;
+  const fix = !view.turnHere ? `Go to ${turn.agent}'s tab` : mode === "watch" && !approval ? "Unlock the screen" : "";
   $("turn-fix").textContent = fix;
   $("turn-fix").hidden = !fix;
   renderTurnClock();
@@ -274,7 +297,9 @@ const notifyDevice = (turn) => {
 };
 
 const flash = (turn) => {
-  $("turn-flash-text").textContent = `${turn.agent}: ${turn.reason}`;
+  const approval = turn.kind === "approval";
+  $("turn-flash-title").textContent = approval ? `Allow ${turn.agent}?` : "Your turn";
+  $("turn-flash-text").textContent = approval ? `${turn.agent} wants to click and type on ${turn.host}.` : `${turn.agent}: ${turn.reason}`;
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   $("turn-flash").hidden = true;
   void $("turn-flash").offsetWidth; // so a second request plays it again
@@ -337,6 +362,7 @@ const render = () => {
   $("brave-down").hidden = !view.braveDown;
   $("version").textContent = view.staleDays ? `· Brave is ${view.staleDays} days old. Run ridealong update` : `· ${view.version}`;
   renderActivity();
+  renderRules();
   if (!turn) document.title = "Ridealong";
 };
 
@@ -420,10 +446,12 @@ document.querySelectorAll("[data-preset]").forEach((b) => {
 document.querySelectorAll("[data-mode]").forEach((b) => {
   b.addEventListener("click", () => post("/api/mode", { mode: b.dataset.mode }));
 });
-$("done").addEventListener("click", () => {
+const answerTurn = (blocked) => {
   $("done").disabled = true;
-  post("/api/done", { id: view?.turn?.id }).catch(() => { $("done").disabled = false; });
-});
+  post("/api/done", { id: view?.turn?.id, blocked }).catch(() => { $("done").disabled = false; });
+};
+$("done").addEventListener("click", () => answerTurn(false));
+$("turn-block").addEventListener("click", () => answerTurn(true));
 
 // A click on a locked screen would otherwise do nothing and explain nothing.
 let takeoverTimer;

@@ -8,7 +8,7 @@ export HOME DOCKER_CONFIG
 trap '"$REPO/ridealong" uninstall >/dev/null 2>&1 || true; rm -rf "$HOME"' EXIT
 PORT=${SMOKE_PORT:-16080}
 
-"$REPO/ridealong" up --network ssh --port "$PORT"
+"$REPO/ridealong" up --build --network ssh --port "$PORT"
 
 docker exec ridealong sh -c '
   renderer=$(pgrep -f -- --type=renderer | head -1)

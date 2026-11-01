@@ -160,6 +160,12 @@ ol { list-style: none; margin: 0; padding: 0; }
 .empty { display: flex; flex-direction: column; align-items: center; padding: 72px 12px; text-align: center; color: var(--body); }
 .empty strong { color: var(--ink); font-size: 17px; font-weight: 400; letter-spacing: -.02em; }
 
+.rule-form { display: flex; gap: 6px; }
+.rule-form input { flex: 1; min-width: 0; height: 34px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--tray); color: var(--ink); font: inherit; font-size: 13.5px; }
+.rules { list-style: none; margin: 0; padding: 0; }
+.rules:empty { display: none; }
+.rules li { display: flex; justify-content: space-between; align-items: center; min-height: 30px; font-size: 13.5px; }
+
 /* Settings */
 section { padding: 14px 0 18px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line); }
 h3 { margin: 0 0 2px; color: var(--quiet); font-size: 13px; font-weight: 400; }

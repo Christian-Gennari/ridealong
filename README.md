@@ -27,7 +27,7 @@ cd ridealong
 ./ridealong up
 ```
 
-The first build takes about 3 minutes. It prints your viewer link and connects the MCP clients it finds. Then open the viewer, choose **Control**, sign into your accounts in Brave, and go back to **Auto**.
+It downloads about 350 MB the first time, prints your viewer link and connects the MCP clients it finds. Then open the viewer, choose **Control**, sign into your accounts in Brave, and go back to **Auto**.
 
 Everything runs in one container, so nothing is installed on the server except the `ridealong` command in `~/.local/bin`. It starts again on its own after a reboot.
 
@@ -38,11 +38,11 @@ Everything runs in one container, so nothing is installed on the server except t
 | `ridealong restart` | Restart it |
 | `ridealong status` | Show whether it's healthy and where to find it |
 | `ridealong logs` | Follow the logs |
-| `ridealong update` | Pull the latest code, refresh Brave and restart |
+| `ridealong update` | Get the latest version, including Brave, and restart |
 | `ridealong connect` | Connect MCP clients you've installed since |
 | `ridealong uninstall` | Remove the container and agent config, keeping your profile and files |
 
-Brave only updates with the image, so run `ridealong update` regularly. The viewer reminds you after 14 days.
+Brave only updates with the image, which is rebuilt every week, so run `ridealong update` regularly. The viewer reminds you after 14 days.
 
 Moving from an older install that ran directly on the server? Run `./ridealong migrate`. It asks for `sudo` once, removes that install and carries on with your existing Brave profile.
 
@@ -69,6 +69,14 @@ On a phone or tablet, the viewer adds a **Type into the browser** box whenever t
 Activity and settings live in the sidebar, in light or dark.
 
 ![Ridealong in dark mode with the settings panel open, on a real npm page](docs/images/dark.png)
+
+## Site rules
+
+Under **Settings**, list the sites where agents must ask first, such as your bank, PayPal or your domain registrar. Agents can still read those sites. When one tries to click or type there, the viewer asks you to allow it for 10 minutes or block it. The check runs in Ridealong's wrapper, not in the agent, so a page can't talk an agent past it, and if the viewer is down the answer is no.
+
+While any rule is set, `browser_run_code_unsafe` is turned off, because it could reach a protected site and act in one call.
+
+Rules protect the page in front of the agent. They can't stop a script on another site from sending requests with your cookies, and an agent with a shell on the server could change them.
 
 ## Parallel agents
 
@@ -133,13 +141,13 @@ One container runs Xvfb, a bare window manager, Brave, x11vnc and the viewer, wi
 
 Only the viewer port leaves the container. VNC and Brave's debugging port stay inside it.
 
-To work on Ridealong itself, run `npm test` in `viewer/`, and `scripts/smoke` to boot the real image.
+To work on Ridealong itself, run `ridealong up --build`, `npm test` in `viewer/`, and `scripts/smoke` to boot the real image.
 
 ## Security
 
 Treat Ridealong as giving your agents your logged-in browser, and sign in only where you'd accept that.
 
-- **Agents read untrusted pages**, so prompt injection is a real risk. They're told to treat page text as data, which reduces the risk but doesn't remove it.
+- **Agents read untrusted pages**, so prompt injection is a real risk. They're told to treat page text as data, which reduces the risk but doesn't remove it. Set [site rules](#site-rules) for anything that matters.
 - **The container is locked down:** it runs as your user with a read-only filesystem, no capabilities except `SYS_CHROOT`, and no new privileges. Brave's own sandbox stays on, which is why `docker/seccomp.json` adds namespaces to Docker's default profile. A compromised page has to escape Brave's sandbox and then the container, and even then it finds only your Brave profile and shared folder.
 - **Saved passwords are stored unencrypted** in `~/.ridealong-browser`, because there's nobody at boot to unlock a keyring. Any process running as your user can read them. Keep payment and other high-value accounts out of this profile.
 - **Anyone in the `docker` group is effectively root,** and can open a shell in the container. That's true of Docker in general.

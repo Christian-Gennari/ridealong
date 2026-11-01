@@ -101,7 +101,9 @@ const stop = async () => {
 process.on("SIGTERM", stop);
 process.on("SIGINT", stop);
 
-fs.mkdirSync(process.env.HOME, { recursive: true });
+fs.mkdirSync(path.join(process.env.HOME, ".config/gtk-3.0"), { recursive: true });
+// So the file dialog you get in Control mode can find the shared folder.
+fs.writeFileSync(path.join(process.env.HOME, ".config/gtk-3.0/bookmarks"), `file://${FILES} Shared files\n`);
 pruneFiles();
 setInterval(pruneFiles, 86400000).unref();
 fs.mkdirSync("/tmp/.X11-unix", { recursive: true, mode: 0o1777 });

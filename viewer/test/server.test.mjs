@@ -1,7 +1,10 @@
 // Drives the real server over HTTP, the way the viewer and agents do.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import { after, before, test } from "node:test";
 
 const SERVER = new URL("../server.mjs", import.meta.url).pathname;
@@ -88,8 +91,8 @@ test("an agent can tell an answer from a viewer that lost its request", async ()
   const id = await a.join("Hermes");
   const asked = await a.call("/api/handover", { session: id, reason: "x" });
   await a.call("/api/done", { id: asked.id });
-  assert.deepEqual(await a.call(`/api/handover/wait?id=${asked.id}`), { status: 200, done: true, lost: false });
-  assert.deepEqual(await a.call("/api/handover/wait?id=123"), { status: 200, done: false, lost: true });
+  assert.deepEqual(await a.call(`/api/handover/wait?id=${asked.id}`), { status: 200, done: true, blocked: false, lost: false });
+  assert.deepEqual(await a.call("/api/handover/wait?id=123"), { status: 200, done: false, blocked: false, lost: true });
 });
 
 test("a stopped wait is shown in the activity list", async () => {
@@ -142,6 +145,34 @@ test("an old image asks for an update", async () => {
   const old = api(await start(16206, { RIDEALONG_BUILT: String(Math.floor(Date.now() / 1000) - 20 * 86400) }));
   assert.equal((await old.view()).staleDays, 20);
   assert.equal((await a.view()).staleDays, 0);
+});
+
+test("site rules are tidied, saved and survive a restart", async () => {
+  const file = path.join(os.tmpdir(), `ridealong-rules-${process.pid}.json`);
+  fs.rmSync(file, { force: true });
+  const one = api(await start(16207, { RULES_FILE: file }));
+  await one.call("/api/rules", { hosts: ["https://www.PayPal.com/signin", "bank.example", "bank.example", "  "] });
+  assert.deepEqual((await one.call("/api/rules")).hosts, ["bank.example", "paypal.com"]);
+  running.pop().kill();
+  await new Promise((r) => setTimeout(r, 100));
+  const two = api(await start(16207, { RULES_FILE: file }));
+  assert.deepEqual((await two.view()).rules, ["bank.example", "paypal.com"]);
+  fs.rmSync(file, { force: true });
+});
+
+test("other origins can't change site rules", async () => {
+  const res = await raw(base, "/api/rules", { method: "POST", headers: { Origin: "https://evil.example" }, body: '{"hosts":[]}' });
+  assert.equal(res.status, 403);
+});
+
+test("an approval can be blocked, and the agent learns it was", async () => {
+  const id = await a.join("Claude");
+  const { id: turn } = await a.call("/api/handover", { session: id, reason: "x", kind: "approval", host: "paypal.com" });
+  assert.equal((await a.view()).turn.kind, "approval");
+  await a.call("/api/done", { id: turn, blocked: true });
+  assert.deepEqual(await a.call(`/api/handover/wait?id=${turn}`), { status: 200, done: true, blocked: true, lost: false });
+  assert.equal((await a.view()).activity[0].text, "Blocked Claude on paypal.com");
+  await a.call("/api/session/end", { id });
 });
 
 test("a new turn pushes to the notify URL", async () => {

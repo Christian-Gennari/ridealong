@@ -37,7 +37,8 @@ const INSTRUCTIONS = "This is a real, logged-in browser shared with other agent 
   "If you need a 2FA code, a CAPTCHA or a password that isn't saved, tell the user, then call browser_handover. " +
   "If the human takes control, your browser tools wait until they release it. That isn't an error. " +
   `Brave runs in a container and shares only ${FILES} with you: put files there to upload them, and find downloads there. ` +
-  (process.env.RIDEALONG_HOST_NETWORK === "1" ? "" : "localhost in this browser is the container, not the server.");
+  (process.env.RIDEALONG_HOST_NETWORK === "1" ? "" : "localhost in this browser is the container, not the server. ") +
+  "Some sites need the human's approval before you click or type on them: your tool call waits for their answer.";
 
 const HANDOVER_TOOL = {
   name: "browser_handover",
@@ -246,6 +247,45 @@ const glideTo = async (args, text) => {
   if (ok) await sleep(GLIDE_MS);
 };
 
+// Anything that changes a page, as opposed to reading it.
+const ACTING = new Set(["browser_click", "browser_type", "browser_fill_form", "browser_press_key",
+  "browser_select_option", "browser_file_upload", "browser_drag", "browser_drop", "browser_evaluate"]);
+const APPROVAL_MS = 10 * 60000;
+let rules = [];
+const approved = new Map();
+
+const protectedHost = (url) => {
+  let host;
+  try { host = new URL(url).hostname.replace(/^www\./, ""); } catch { return null; }
+  return rules.find((rule) => host === rule || host.endsWith(`.${rule}`)) ?? null;
+};
+
+// The hard stop behind per-site rules: this runs in here, not in the agent or
+// the page, so nothing on a page can talk its way past it. Returns why a call is
+// refused. A viewer that's gone counts as a no.
+const refusal = async (name) => {
+  rules = await viewer("/api/rules").then((r) => r.hosts).catch(() => rules);
+  if (!rules.length) return null;
+  // Arbitrary code could navigate to a protected site and act in one call.
+  if (name === "browser_run_code_unsafe") return "browser_run_code_unsafe is turned off while site rules are set. Use the other browser tools.";
+  if (!ACTING.has(name)) return null;
+  const answer = await callChild({ name: "browser_run_code_unsafe", arguments: { code: "async (page) => page.url()" } }, 3000).catch(() => null);
+  if (!answer) return "Couldn't check which site this tab is on, so this was refused. Try again.";
+  const url = JSON.stringify(answer.result ?? "").match(/https?:[^"\\\s]+/)?.[0];
+  if (!url) return null;
+  const host = protectedHost(url);
+  if (!host || (approved.get(host) ?? 0) > Date.now()) return null;
+  await overlay({ cmd: "status", text: `Asking to act on ${host}` });
+  const result = await ask(`Wants to act on ${host}`, { kind: "approval", host });
+  if (result?.done && !result.blocked) {
+    approved.set(host, Date.now() + APPROVAL_MS);
+    return null;
+  }
+  return result?.blocked
+    ? `The human blocked this on ${host}. Don't try again on this site. Ask them in chat.`
+    : `${host} needs the human's approval, and nobody gave it. Ask them in chat.`;
+};
+
 const handleCall = async (msg) => {
   const { name, arguments: args = {} } = msg.params;
 
@@ -265,6 +305,8 @@ const handleCall = async (msg) => {
     return reply(msg, "The human still has control of the browser. Ask them in chat before trying again.");
   }
   await claimTab();
+  const refused = await refusal(name);
+  if (refused) return reply(msg, refused);
   const text = LABELS[name]?.(args);
   const params = { ...msg.params };
   if (text) {
@@ -307,27 +349,37 @@ const absolutePaths = (answer) => {
 
 const reply = (msg, text) => toClient({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }] } });
 
-const handover = async (msg, { reason }) => {
-  await claimTab();
+// Puts a request in front of the human and waits for the answer. Null means the
+// viewer couldn't be reached; { timedOut } means nobody answered.
+const ask = async (reason, extra = {}) => {
   const deadline = Date.now() + HANDOVER_MINUTES * 60000;
-  const ask = async () => viewer("/api/handover", {
-    body: { session: await (session ?? register()), reason: short(reason, 140), minutes: (deadline - Date.now()) / 60000 },
+  const post = async () => viewer("/api/handover", {
+    body: { session: await (session ?? register()), reason: short(reason, 140), minutes: (deadline - Date.now()) / 60000, ...extra },
   });
   let id;
   try {
-    ({ id } = await ask());
+    ({ id } = await post());
   } catch {
-    return reply(msg, "The viewer isn't running, so nobody can see this request. Ask in chat instead.");
+    return null;
   }
-  await overlay({ cmd: "status", text: "Waiting for you" });
   while (Date.now() < deadline) {
     const r = await viewer(`/api/handover/wait?id=${id}`, { timeoutMs: LONG_POLL_MS }).catch(() => sleep(2000));
-    if (r?.done) return reply(msg, "The human handed control back. Take a new snapshot before continuing: the page has probably changed.");
+    if (r?.done) return r;
     // The viewer restarted and lost the request, so nobody has answered it.
-    if (r?.lost) ({ id } = await ask().catch(() => ({ id })));
+    if (r?.lost) ({ id } = await post().catch(() => ({ id })));
   }
   await viewer("/api/handover/cancel", { body: { id } }).catch(() => {});
-  reply(msg, `Nobody handed control back within ${HANDOVER_MINUTES} minutes. Ask in chat instead of retrying.`);
+  return { timedOut: true };
+};
+
+const handover = async (msg, { reason }) => {
+  await claimTab();
+  const waiting = overlay({ cmd: "status", text: "Waiting for you" });
+  const result = await ask(reason);
+  await waiting;
+  if (!result) return reply(msg, "The viewer isn't running, so nobody can see this request. Ask in chat instead.");
+  if (result.timedOut) return reply(msg, `Nobody handed control back within ${HANDOVER_MINUTES} minutes. Ask in chat instead of retrying.`);
+  reply(msg, "The human handed control back. Take a new snapshot before continuing: the page has probably changed.");
 };
 
 // The session's over: give back its tab and its place in the viewer.

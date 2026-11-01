@@ -25,7 +25,7 @@ const sessions = new Map();
 const streams = new Set();
 let waiters = [];
 let nextTurn = Date.now(); // never reused, so an agent can tell a restart from an answer
-const answered = new Set();
+const answered = new Map(); // turn id to whether the human blocked it
 let nextSession = 0;
 let followed = null; // the session whose tab is in front
 let pinned = false;  // the human chose this, so don't move on when it goes quiet
@@ -124,7 +124,7 @@ const view = () => {
     turnHere: state.turns[0]?.session === followed,
     activity: state.activity, locked: locked(), paused: !canAct(),
     braveDown: braveDown(), version: process.env.RIDEALONG_VERSION || "dev",
-    staleDays: imageAge() > BRAVE_STALE_DAYS ? Math.floor(imageAge()) : 0,
+    rules, staleDays: imageAge() > BRAVE_STALE_DAYS ? Math.floor(imageAge()) : 0,
   };
 };
 
@@ -206,6 +206,22 @@ const readBody = (req) => new Promise((resolve, reject) => {
   req.on("error", reject);
 });
 
+// Sites where agents must ask before acting. The wrapper enforces this.
+const RULES_FILE = process.env.RULES_FILE || "";
+const loadRules = () => {
+  try { return JSON.parse(fs.readFileSync(RULES_FILE, "utf8")).hosts ?? []; } catch { return []; }
+};
+let rules = loadRules();
+const cleanHost = (value) => {
+  const raw = String(value ?? "").trim().toLowerCase();
+  try { return new URL(raw.includes("://") ? raw : `https://${raw}`).hostname.replace(/^www\./, ""); } catch { return ""; }
+};
+const saveRules = () => {
+  if (!RULES_FILE) return;
+  fs.writeFileSync(`${RULES_FILE}.tmp`, JSON.stringify({ hosts: rules }));
+  fs.renameSync(`${RULES_FILE}.tmp`, RULES_FILE);
+};
+
 const clip = (s, n) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
 
 // A push for when nobody's looking at the viewer. Plain text, so ntfy works as is.
@@ -232,6 +248,15 @@ const api = {
     if (!braveDown()) return json(res, 409, { error: "Brave is responding" });
     // The supervisor starts it again.
     execFile("pkill", ["-9", "-x", "brave"], () => json(res, 200, {}));
+  },
+  "GET /api/rules": (req, res) => json(res, 200, { hosts: rules }),
+  "POST /api/rules": async (req, res) => {
+    const { hosts } = await readBody(req);
+    if (!Array.isArray(hosts)) return json(res, 400, { error: "hosts" });
+    rules = [...new Set(hosts.map(cleanHost).filter(Boolean))].sort();
+    saveRules();
+    publish();
+    json(res, 200, { hosts: rules });
   },
   "GET /api/gate": async (req, res) => {
     if (!canAct()) await nextChange();
@@ -300,15 +325,16 @@ const api = {
     json(res, 200, {});
   },
   "POST /api/handover": async (req, res) => {
-    const { session, reason, minutes } = await readBody(req);
+    const { session, reason, minutes, kind, host } = await readBody(req);
     const current = sessions.get(session);
     if (!current) return json(res, 404, {});
     const at = Date.now();
-    const turn = { id: ++nextTurn, session, agent: current.label, reason: clip(reason, 140), at, deadline: at + (Number(minutes) || 10) * 60000 };
+    const turn = { id: ++nextTurn, session, agent: current.label, reason: clip(reason, 140), at, deadline: at + (Number(minutes) || 10) * 60000,
+      kind: kind === "approval" ? "approval" : "handover", host: clip(host, 80) };
     state.turns.push(turn);
     current.text = "Waiting for you";
     current.at = at;
-    log(turn.agent, `Asked you: ${turn.reason}`, { ask: true });
+    log(turn.agent, turn.kind === "approval" ? `Wants to act on ${turn.host}` : `Asked you: ${turn.reason}`, { ask: true });
     notify(turn);
     publish();
     json(res, 200, { id: turn.id });
@@ -317,7 +343,7 @@ const api = {
     const id = Number(url.searchParams.get("id"));
     if (state.turns.some((t) => t.id === id)) await nextChange();
     const open = state.turns.some((t) => t.id === id);
-    json(res, 200, { done: answered.has(id), lost: !open && !answered.has(id) });
+    json(res, 200, { done: answered.has(id), blocked: answered.get(id) === true, lost: !open && !answered.has(id) });
   },
   "POST /api/handover/cancel": async (req, res) => {
     const { id } = await readBody(req);
@@ -329,12 +355,12 @@ const api = {
   },
   // Names the turn, so a double click or a second device can't answer the next one.
   "POST /api/done": async (req, res) => {
-    const { id } = await readBody(req);
+    const { id, blocked } = await readBody(req);
     const turn = state.turns.find((t) => t.id === id);
     if (turn) {
       state.turns = state.turns.filter((t) => t !== turn);
-      answered.add(turn.id);
-      log("You", "Handed back");
+      answered.set(turn.id, Boolean(blocked));
+      log("You", turn.kind !== "approval" ? "Handed back" : `${blocked ? "Blocked" : "Allowed"} ${turn.agent} on ${turn.host}`);
     }
     if (!state.turns.length) pinned = false;
     if (state.mode === "control" && !state.turns.length) state.mode = "auto";

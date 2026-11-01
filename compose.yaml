@@ -4,7 +4,7 @@ name: ridealong
 services:
   ridealong:
     container_name: ridealong
-    image: ridealong:local
+    image: ${RIDEALONG_IMAGE:-ghcr.io/christian-gennari/ridealong:latest}
     build:
       context: .
       args:
@@ -35,6 +35,7 @@ services:
       - ${RIDEALONG_FILES}:${RIDEALONG_FILES}
     environment:
       RIDEALONG_FILES: ${RIDEALONG_FILES}
+      RULES_FILE: /profile/ridealong-rules.json
       RIDEALONG_RESOLUTION: ${RIDEALONG_RESOLUTION:-1920x1080}
       RIDEALONG_HOST_NETWORK: ${RIDEALONG_HOST_NETWORK:-0}
       VIEWER_HOST: 0.0.0.0

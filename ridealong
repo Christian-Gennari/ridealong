@@ -12,7 +12,7 @@ usage() {
   cat <<'HELP'
 Usage: ridealong <command>
 
-  up        Start Ridealong, building it the first time
+  up        Start Ridealong, downloading it the first time
               --network auto|tailscale|ssh|lan   How you reach the viewer
               --host-network                     Let agents open localhost on this server
               --port N                           Viewer port (default 6086)
@@ -20,13 +20,14 @@ Usage: ridealong <command>
               --resolution WxH                   Screen size (default 1920x1080)
               --allow-host NAME                  Accept this address, for your own proxy
               --notify URL                       Push here when it's your turn
+              --build                            Build from this checkout instead of downloading
               --profile DIR                      Brave profile (default ~/.ridealong-browser)
               --files DIR                        Folder shared with agents (default ~/ridealong-files)
   down      Stop it
   restart   Restart it
   status    Show whether it's healthy and where to find it
   logs      Follow the logs
-  update    Pull the latest code, refresh Brave and restart
+  update    Get the latest version, including Brave, and restart
   connect   Connect the MCP clients installed here
   migrate   Replace an older install that ran directly on this server
   uninstall Remove the container and agent config, keeping your profile and files
@@ -125,6 +126,7 @@ cmd_up() {
   PROFILE=${RIDEALONG_PROFILE:-$HOME/.ridealong-browser}
   FILES=${RIDEALONG_FILES:-$HOME/ridealong-files}
   TOKEN=${RIDEALONG_TOKEN:-}
+  local build=no
   while [ $# -gt 0 ]; do
     case "$1" in
       --network) NETWORK=$2; shift 2 ;;
@@ -134,6 +136,7 @@ cmd_up() {
       --resolution) RESOLUTION=$2; shift 2 ;;
       --allow-host) ALLOWED_HOSTS=${ALLOWED_HOSTS:+$ALLOWED_HOSTS,}$2; shift 2 ;;
       --notify) NOTIFY_URL=$2; shift 2 ;;
+      --build) build=yes; shift ;;
       --profile) PROFILE=$(realpath -m "$2"); shift 2 ;;
       --files) FILES=$(realpath -m "$2"); shift 2 ;;
       *) die "Unknown option: $1" ;;
@@ -167,7 +170,12 @@ cmd_up() {
   install -d -m 700 "$PROFILE" "$FILES"
   write_config
   load
-  compose up -d --build --quiet-pull
+  # A published image is much quicker than building one. Build if there isn't one.
+  if [ "$build" = yes ] || ! compose pull --quiet 2>/dev/null; then
+    compose up -d --build
+  else
+    compose up -d
+  fi
   wait_healthy
   serve_tailscale
 
@@ -219,7 +227,6 @@ cmd_update() {
   RIDEALONG_REFRESH=$(date +%s)
   RIDEALONG_BUILT=$(date +%s)
   export RIDEALONG_REFRESH RIDEALONG_BUILT
-  docker pull -q node:24-bookworm-slim >/dev/null
   cmd_up
 }
 
@@ -251,7 +258,7 @@ cmd_uninstall() {
   [ -f "$CONFIG" ] || die "Ridealong isn't set up here."
   cmd_connect --remove
   [ "${RIDEALONG_NETWORK:-}" = tailscale ] && { timeout 20 tailscale serve --https="${RIDEALONG_HTTPS_PORT:-6087}" off >/dev/null 2>&1 || true; }
-  compose down --rmi local
+  compose down --rmi all
   rm -f "$LINK" "$CONFIG"
   rmdir "$CONFIG_DIR" 2>/dev/null || true
   echo "Removed. Your Brave profile and shared files are still in ${RIDEALONG_PROFILE} and ${RIDEALONG_FILES}."
