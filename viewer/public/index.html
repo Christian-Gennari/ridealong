@@ -4,13 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#fdfcfc" id="theme-color">
   <title>Ridealong</title>
   <script src="/theme.js"></script>
   <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/style.css">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none' stroke-width='3'%3E%3Cstyle%3Ecircle%7Bstroke:%23000%7D@media (prefers-color-scheme:dark)%7Bcircle%7Bstroke:%23fff%7D%7D%3C/style%3E%3Ccircle cx='11.5' cy='16' r='8.5'/%3E%3Ccircle cx='20.5' cy='16' r='8.5'/%3E%3C/svg%3E">
+  <link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none' stroke-width='3'%3E%3Cstyle%3Ecircle%7Bstroke:%23000%7D@media (prefers-color-scheme:dark)%7Bcircle%7Bstroke:%23fff%7D%7D%3C/style%3E%3Ccircle cx='11.5' cy='16' r='8.5'/%3E%3Ccircle cx='20.5' cy='16' r='8.5'/%3E%3C/svg%3E">
 </head>
 <body>
+  <div class="flood" aria-hidden="true"></div>
+  <div class="turn-flash" id="turn-flash" aria-hidden="true" hidden><strong>Your turn</strong><span id="turn-flash-text"></span></div>
   <header class="bar">
     <div class="brand" aria-label="Ridealong">
       <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="11.5" cy="16" r="8.5"/><circle cx="20.5" cy="16" r="8.5"/></svg>
@@ -21,9 +24,15 @@
       <span class="who" id="who">Connecting</span>
       <span class="what" id="what"></span>
     </div>
-    <div class="riders" id="riders" hidden></div>
+    <div class="picker" id="picker" hidden>
+      <button class="picker-button" id="picker-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="picker-list">
+        <span class="stack" id="picker-orbs"></span>
+        <span id="picker-count"></span>
+        <svg viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <ul class="picker-list" id="picker-list" role="listbox" aria-label="Choose whose tab to show" hidden></ul>
+    </div>
     <div class="actions">
-      <button class="primary" id="done" hidden>Hand back <svg viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
       <div class="segments modes" role="radiogroup" aria-label="Who controls the browser">
         <button role="radio" data-mode="auto" title="Locked while agents work. Unlocks when one asks for you.">Auto</button>
         <button role="radio" data-mode="watch" title="Always locked. Just watch.">Watch</button>
@@ -38,10 +47,27 @@
     </div>
   </header>
 
+  <div class="turn-banner" id="turn" role="alert" hidden>
+    <span class="orb large turn" id="turn-orb"></span>
+    <div class="turn-copy">
+      <h2>Your turn</h2>
+      <p class="turn-reason" id="turn-reason"></p>
+      <p class="turn-sub" id="turn-sub"></p>
+    </div>
+    <div class="turn-actions">
+      <button class="ghost" id="turn-fix" hidden></button>
+      <button class="primary" id="done">Hand back <svg viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+    </div>
+  </div>
+
   <div class="workspace">
     <main>
       <div id="screen"></div>
       <div class="notice" id="notice">Connecting</div>
+      <form class="typer" id="typer">
+        <input id="typer-text" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" placeholder="Type into the browser" aria-label="Type into the browser">
+        <button class="ghost" type="submit">Send</button>
+      </form>
       <div class="takeover" id="takeover" hidden><span id="takeover-text"></span><button id="take-control">Take control</button></div>
     </main>
 
@@ -86,10 +112,18 @@
         </section>
 
         <section>
+          <h3>When it's your turn</h3>
+          <label class="field">Play a sound <input type="checkbox" class="switch" id="sound"></label>
+          <label class="field">Notify this device <input type="checkbox" class="switch" id="notifications"></label>
+          <p class="hint" id="notifications-hint" hidden></p>
+        </section>
+
+        <section>
           <h3>Clipboard</h3>
           <textarea id="clipboard" rows="2" placeholder="Copied text appears here. Type or paste to send it to the browser."></textarea>
           <div class="send-row">
-            <button class="ghost needs-control" id="send-clipboard">Send to browser</button>
+            <button class="ghost needs-control" id="send-clipboard">Copy to Brave</button>
+            <button class="ghost needs-control" id="type-clipboard">Type it</button>
             <p class="hint control-hint">Needs Control mode</p>
           </div>
         </section>

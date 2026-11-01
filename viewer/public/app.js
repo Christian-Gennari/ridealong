@@ -1,10 +1,11 @@
 // The viewer. noVNC's RFB class draws the display; this file is the UI around it.
 import RFB from "/vendor/novnc/core/rfb.js";
 import KeyTable from "/vendor/novnc/core/input/keysym.js";
+import keysyms from "/vendor/novnc/core/input/keysymdef.js";
 
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = "ridealong-settings";
-const DEFAULTS = { fit: true, dotCursor: true, quality: 6, compression: 2, panel: false, tab: "activity", appearance: "system" };
+const DEFAULTS = { fit: true, dotCursor: true, quality: 6, compression: 2, panel: false, tab: "activity", appearance: "system", sound: true, notifications: false };
 const PRESETS = {
   sharp: { quality: 8, compression: 2 },
   balanced: { quality: 6, compression: 2 },
@@ -95,25 +96,74 @@ const WORKING_MS = 30000;
 
 const base = (name) => name.toLowerCase().replace(/ \d+$/, "");
 
+const orbFor = (label, small = true) => {
+  const orb = document.createElement("span");
+  orb.className = small ? "orb small" : "orb";
+  orb.dataset.agent = base(label);
+  return orb;
+};
+
+const openPicker = (open) => {
+  $("picker-list").hidden = !open;
+  $("picker-button").setAttribute("aria-expanded", String(open));
+  if (open) $("picker-list").querySelector("[aria-selected='true'], button")?.focus();
+};
+
 // With parallel sessions, pick whose tab the screen shows.
-const renderRiders = () => {
+const renderPicker = () => {
   const list = view.sessions ?? [];
-  $("riders").hidden = list.length < 2;
-  $("riders").replaceChildren(...(list.length < 2 ? [] : list.map((x) => {
+  const many = list.length > 1;
+  $("picker").hidden = !many;
+  document.body.classList.toggle("someone-waiting", list.some((x) => x.needsYou && !x.followed));
+  if (!many) return openPicker(false);
+  $("picker-count").textContent = `${list.length} sessions`;
+  $("picker-orbs").replaceChildren(...list.slice(0, 3).map((x) => orbFor(x.label)));
+  const focused = document.activeElement?.dataset?.session;
+  $("picker-list").replaceChildren(...list.map((x) => {
+    const li = document.createElement("li");
+    li.setAttribute("role", "presentation");
     const b = document.createElement("button");
-    b.setAttribute("aria-current", String(x.followed));
-    const orb = document.createElement("span");
-    orb.className = "orb small";
-    orb.dataset.agent = base(x.label);
-    b.append(orb, x.label);
+    b.setAttribute("role", "option");
+    b.setAttribute("aria-selected", String(x.followed));
+    b.dataset.session = x.id;
+    const copy = document.createElement("span");
+    copy.className = "picker-copy";
+    const name = document.createElement("span");
+    name.textContent = x.label;
+    const doing = document.createElement("span");
+    doing.className = "picker-doing";
+    doing.textContent = Date.now() - x.at < WORKING_MS || x.needsYou ? x.text : "Idle";
+    copy.append(name, doing);
+    b.append(orbFor(x.label), copy);
+    if (x.needsYou) {
+      const tag = document.createElement("span");
+      tag.className = "picker-tag";
+      tag.textContent = "Needs you";
+      b.append(tag);
+    }
     b.addEventListener("click", () => {
-      // Answer the click now; the server confirms a moment later.
-      $("riders").querySelectorAll("button").forEach((o) => o.setAttribute("aria-current", String(o === b)));
+      openPicker(false);
+      $("picker-button").focus();
       post("/api/follow", { id: x.id });
     });
-    return b;
-  })));
+    li.append(b);
+    return li;
+  }));
+  if (focused) $("picker-list").querySelector(`[data-session="${focused}"]`)?.focus();
 };
+
+$("picker-button").addEventListener("click", () => openPicker($("picker-list").hidden));
+$("picker-list").addEventListener("keydown", (e) => {
+  const items = [...$("picker-list").querySelectorAll("button")];
+  const at = items.indexOf(document.activeElement);
+  if (e.key === "Escape") { openPicker(false); $("picker-button").focus(); }
+  if (e.key === "ArrowDown") { e.preventDefault(); items[(at + 1) % items.length]?.focus(); }
+  if (e.key === "ArrowUp") { e.preventDefault(); items[(at - 1 + items.length) % items.length]?.focus(); }
+});
+// In the capture phase, because the screen keeps the clicks it gets.
+document.addEventListener("pointerdown", (e) => {
+  if (!$("picker").contains(e.target)) openPicker(false);
+}, true);
 
 const STEP_ICONS = [
   [/^Opening|^Going back/, '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'],
@@ -158,8 +208,104 @@ const renderActivity = () => {
   $("activity-empty").hidden = view.activity.length > 0;
 };
 
+const clock = (ms) => {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+const renderTurnClock = () => {
+  const turn = view?.turn;
+  if (!turn) return;
+  const parts = [`${turn.agent} stops waiting in ${clock(turn.deadline - Date.now())}`];
+  if (view.waiting) parts.push(`${view.waiting} more waiting`);
+  $("turn-sub").textContent = parts.join(" · ");
+};
+
+const renderTurn = () => {
+  const { turn, mode } = view;
+  $("turn").hidden = !turn;
+  document.body.classList.toggle("turn", Boolean(turn));
+  if (turn) document.body.dataset.agent = base(turn.agent);
+  else delete document.body.dataset.agent;
+  $("theme-color").content = turn ? getComputedStyle(document.body).getPropertyValue("--c").trim() : "#fdfcfc";
+  if (!turn) return;
+  $("turn-orb").dataset.agent = base(turn.agent);
+  $("turn-reason").textContent = `${turn.agent}: ${turn.reason}`;
+  const fix = !view.turnHere ? `Go to ${turn.agent}'s tab` : mode === "watch" ? "Unlock the screen" : "";
+  $("turn-fix").textContent = fix;
+  $("turn-fix").hidden = !fix;
+  renderTurnClock();
+};
+
+$("turn-fix").addEventListener("click", () => {
+  if (!view.turnHere) post("/api/follow", { id: view.turn.session });
+  else post("/api/mode", { mode: "auto" });
+});
+
+// Once per request: the moment it arrives is the moment to get noticed.
+let chime = null;
+const beep = () => {
+  if (!settings.sound || !chime) return;
+  [[660, 0], [880, 0.16]].forEach(([freq, delay]) => {
+    const tone = chime.createOscillator();
+    const gain = chime.createGain();
+    const at = chime.currentTime + delay;
+    tone.frequency.value = freq;
+    gain.gain.setValueAtTime(0, at);
+    gain.gain.linearRampToValueAtTime(0.12, at + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, at + 0.5);
+    tone.connect(gain).connect(chime.destination);
+    tone.start(at);
+    tone.stop(at + 0.5);
+  });
+};
+// Browsers only allow sound after a click, so wake it on the first one.
+document.addEventListener("pointerdown", () => {
+  chime ??= new AudioContext();
+  chime.resume();
+}, { once: true, capture: true });
+
+const notifyDevice = (turn) => {
+  if (!settings.notifications || !document.hidden || window.Notification?.permission !== "granted") return;
+  try {
+    const note = new Notification("Your turn", { body: `${turn.agent}: ${turn.reason}`, tag: "ridealong-turn" });
+    note.onclick = () => { window.focus(); note.close(); };
+  } catch { /* Android only allows these from a service worker */ }
+};
+
+const flash = (turn) => {
+  $("turn-flash-text").textContent = `${turn.agent}: ${turn.reason}`;
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  $("turn-flash").hidden = true;
+  void $("turn-flash").offsetWidth; // so a second request plays it again
+  $("turn-flash").hidden = false;
+};
+$("turn-flash").addEventListener("animationend", (e) => { if (e.target === $("turn-flash")) $("turn-flash").hidden = true; });
+
+const favicon = $("favicon").href;
+const turnIcon = (colour) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='${colour}'/></svg>`)}`;
+
+let seenTurn = null;
+const announce = () => {
+  const turn = view.turn;
+  if (turn?.id === seenTurn) return;
+  seenTurn = turn?.id ?? null;
+  $("favicon").href = turn ? turnIcon(getComputedStyle(document.body).getPropertyValue("--c").trim()) : favicon;
+  $("done").disabled = false;
+  if (!turn) return;
+  flash(turn);
+  beep();
+  notifyDevice(turn);
+  // So the code can be typed straight away, without clicking the screen first.
+  if (!view.locked) rfb?.focus({ preventScroll: true });
+};
+
 const render = () => {
-  if (!view) return;
+  if (!view) {
+    $("who").textContent = "Reconnecting";
+    $("what").textContent = "";
+    return;
+  }
   const { mode, turn, agent } = view;
   const working = agent && Date.now() - agent.at < WORKING_MS;
   const orb = $("avatar");
@@ -167,7 +313,7 @@ const render = () => {
   orb.dataset.agent = mode === "control" && !turn ? "you" : base(turn ? turn.agent : working ? agent.name : "");
   if (turn) {
     $("who").textContent = "Your turn";
-    $("what").textContent = `${turn.agent}: ${turn.reason}${view.waiting ? ` · ${view.waiting} more waiting` : ""}`;
+    $("what").textContent = "";
   } else if (mode === "control") {
     $("who").textContent = "You have control";
     $("what").textContent = "Agents are waiting";
@@ -181,21 +327,35 @@ const render = () => {
     $("who").textContent = "Standing by";
     $("what").textContent = "";
   }
-  document.body.classList.toggle("turn", Boolean(turn));
-  renderRiders();
-  $("done").hidden = !turn;
+  renderTurn();
+  announce();
+  renderPicker();
   document.querySelectorAll("[data-mode]").forEach((b) => {
     b.setAttribute("aria-checked", String(b.dataset.mode === mode));
   });
   document.body.classList.toggle("in-control", !view.locked);
   renderActivity();
-  document.title = turn ? "Your turn · Ridealong" : "Ridealong";
+  if (!turn) document.title = "Ridealong";
 };
+
+// In a background tab, the title is the only thing left that can move.
+setInterval(() => {
+  if (!view?.turn) return;
+  renderTurnClock();
+  const blink = document.hidden && Math.floor(Date.now() / 1000) % 2;
+  document.title = blink ? "● ● ● ● ●" : "Your turn · Ridealong";
+}, 1000);
 
 const listen = () => {
   const events = new EventSource("/api/events");
   events.onmessage = (e) => { view = JSON.parse(e.data); applyLock(); render(); };
-  events.onerror = () => { view = null; applyLock(); };
+  events.onerror = () => {
+    view = null;
+    applyLock();
+    render();
+    // It retries by itself, except after an error page from a proxy.
+    if (events.readyState === EventSource.CLOSED) setTimeout(listen, 2000);
+  };
 };
 
 const bind = (id, key, apply) => {
@@ -258,7 +418,10 @@ document.querySelectorAll("[data-preset]").forEach((b) => {
 document.querySelectorAll("[data-mode]").forEach((b) => {
   b.addEventListener("click", () => post("/api/mode", { mode: b.dataset.mode }));
 });
-$("done").addEventListener("click", () => post("/api/done"));
+$("done").addEventListener("click", () => {
+  $("done").disabled = true;
+  post("/api/done", { id: view?.turn?.id }).catch(() => { $("done").disabled = false; });
+});
 
 // A click on a locked screen would otherwise do nothing and explain nothing.
 let takeoverTimer;
@@ -285,6 +448,35 @@ $("fullscreen").addEventListener("click", () => {
 });
 $("reconnect").addEventListener("click", connect);
 $("send-clipboard").addEventListener("click", () => rfb?.clipboardPasteFrom($("clipboard").value));
+
+// Phones have no keyboard for a canvas, so a 2FA code goes in through a real field.
+const typeInto = (text) => {
+  if (!rfb || rfb.viewOnly) return;
+  for (const c of text) rfb.sendKey(c === "\n" ? KeyTable.XK_Return : keysyms.lookup(c.codePointAt(0)), null);
+};
+$("type-clipboard").addEventListener("click", () => typeInto($("clipboard").value));
+$("typer").addEventListener("submit", (e) => {
+  e.preventDefault();
+  typeInto($("typer-text").value);
+  $("typer-text").value = "";
+});
+
+const NOTIFY_OK = "Notification" in window && window.isSecureContext;
+const refreshNotifications = bind("notifications", "notifications", () => {
+  if (!settings.notifications) return;
+  Notification.requestPermission().then((answer) => {
+    if (answer !== "granted") { settings.notifications = false; save(); refreshNotifications(); }
+    $("notifications-hint").hidden = answer === "granted";
+    $("notifications-hint").textContent = "Your browser blocked notifications for this site.";
+  });
+});
+bind("sound", "sound", () => {});
+if (!NOTIFY_OK) {
+  $("notifications").disabled = true;
+  $("notifications").checked = false;
+  $("notifications-hint").hidden = false;
+  $("notifications-hint").textContent = "Needs the HTTPS link, and a browser that supports them.";
+}
 
 const KEYS = { esc: [KeyTable.XK_Escape, "Escape"], tab: [KeyTable.XK_Tab, "Tab"] };
 document.querySelectorAll("[data-key]").forEach((b) => {

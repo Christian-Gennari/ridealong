@@ -2,7 +2,7 @@
 
 :root {
   --page: #fdfcfc; --card: #ffffff; --tray: #f4f2f0; --tray-hover: #ebe8e5; --line: #ece9e6; --selected: #ffffff;
-  --ink: #000; --on-ink: #fff; --body: #5f5a55; --quiet: #98928c; --shot: rgba(40,30,20,.08);
+  --ink: #000; --on-ink: #fff; --body: #5f5a55; --quiet: #7d7770; --shot: rgba(40,30,20,.08);
   --soft: 0 1px 2px rgba(20,16,12,.06), 0 0 0 1px rgba(20,16,12,.05);
 }
 
@@ -24,6 +24,7 @@ body { display: flex; flex-direction: column; background: var(--page); color: va
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 [hidden] { display: none !important; }
+body { --a: #ffe3d6; --b: #ff9d7a; --c: #f5603f; --d: #b42a1a; }
 svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Orbs: the only colour in the product. Smooth at any size; soft light drifts inside while an agent works. */
@@ -32,9 +33,12 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round
 .orb::before, .orb::after { content: ""; position: absolute; border-radius: 50%; filter: blur(2.5px); }
 .orb::before { left: 34%; top: 40%; width: 86%; height: 86%; background: radial-gradient(closest-side, var(--d), transparent); opacity: .75; }
 .orb::after { left: -2%; top: -6%; width: 72%; height: 72%; background: radial-gradient(closest-side, var(--a), transparent); }
-.orb[data-agent="claude"] { --a: #ffe9c4; --b: #ffa35a; --c: #f26a2c; --d: #b23412; }
-.orb[data-agent="hermes"] { --a: #f3e2ff; --b: #b596ff; --c: #6d86ff; --d: #2f3fc0; }
-.orb[data-agent="you"] { --a: #f2f8ee; --b: #bfe0c6; --c: #7cb697; --d: #3f8063; }
+[data-agent="claude"] { --a: #ffe9c4; --b: #ffa35a; --c: #f26a2c; --d: #b23412; }
+[data-agent="hermes"] { --a: #f3e2ff; --b: #b596ff; --c: #6d86ff; --d: #2f3fc0; }
+[data-agent="codex"] { --a: #dcfff2; --b: #6fe3bb; --c: #1fae8c; --d: #0b6b5e; }
+[data-agent="gemini"] { --a: #fff2cf; --b: #ffd166; --c: #f2a01e; --d: #b05c0c; }
+[data-agent="cursor"] { --a: #ffe3f0; --b: #ff9cc7; --c: #e04f9a; --d: #93205f; }
+[data-agent="you"] { --a: #f2f8ee; --b: #bfe0c6; --c: #7cb697; --d: #3f8063; }
 .orb.live::before, .orb.turn::before { animation: drift-deep 9s ease-in-out infinite alternate; }
 .orb.live::after, .orb.turn::after { animation: drift-light 7s ease-in-out infinite alternate; }
 @keyframes drift-deep { to { transform: translate(-46%, -38%); } }
@@ -44,7 +48,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round
 .orb.large { width: 64px; height: 64px; margin-bottom: 12px; }
 
 /* Top bar */
-.bar { flex: none; display: flex; align-items: center; gap: 28px; height: 68px; padding: 0 24px; }
+.bar { position: relative; z-index: 2; flex: none; display: flex; align-items: center; gap: 28px; height: 68px; padding: 0 24px; }
 .brand { flex: none; display: flex; align-items: center; gap: 7px; }
 .mark { width: 26px; height: 26px; stroke: var(--ink); stroke-width: 3; }
 .wordmark { font-size: 20px; font-weight: 500; letter-spacing: -.03em; line-height: 1; }
@@ -52,16 +56,57 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round
 .who { flex: none; font-size: 17px; font-weight: 400; letter-spacing: -.02em; }
 .what { min-width: 0; color: var(--body); font-size: 15px; letter-spacing: -.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.riders { flex: none; display: flex; gap: 4px; }
-.riders button { display: flex; align-items: center; gap: 7px; height: 34px; padding: 0 12px 0 8px; border-radius: 999px; color: var(--body); font-size: 13px; transition: background 150ms, color 150ms; }
-.riders button:hover { background: var(--tray); color: var(--ink); }
-.riders button[aria-current="true"] { background: var(--tray); color: var(--ink); }
+/* Session picker */
+.picker { position: relative; flex: none; }
+.picker-button { position: relative; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 12px 0 9px; border-radius: 999px; background: var(--tray); font-size: 13.5px; transition: background 150ms; }
+.picker-button:hover, .picker-button[aria-expanded="true"] { background: var(--tray-hover); }
+.picker-button svg { width: 14px; height: 14px; color: var(--body); transition: transform 150ms; }
+.picker-button[aria-expanded="true"] svg { transform: rotate(180deg); }
+.someone-waiting .picker-button::after { content: ""; position: absolute; right: 1px; top: 1px; width: 10px; height: 10px; border-radius: 50%; background: #f5603f; box-shadow: 0 0 0 2px var(--page); }
+.stack { display: flex; }
+.stack .orb + .orb { margin-left: -7px; box-shadow: 0 0 0 2px var(--tray); }
+.picker-list { position: absolute; right: 0; top: calc(100% + 8px); z-index: 7; width: 320px; max-height: min(420px, 70vh); overflow-y: auto; margin: 0; padding: 6px; list-style: none; border-radius: 18px; background: var(--card); box-shadow: var(--soft), 0 16px 40px var(--shot); }
+.picker-list button { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 54px; padding: 8px 12px; border-radius: 12px; text-align: left; }
+.picker-list button:hover, .picker-list button:focus-visible { background: var(--tray); }
+.picker-list button[aria-selected="true"] { background: var(--tray); }
+.picker-list .orb { width: 26px; height: 26px; }
+.picker-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 19px; }
+.picker-doing { color: var(--body); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.picker-tag { flex: none; padding: 2px 9px; border-radius: 999px; background: var(--ink); color: var(--on-ink); font-size: 11.5px; }
 
 .actions { flex: none; display: flex; align-items: center; gap: 8px; }
-.primary { display: flex; align-items: center; gap: 6px; height: 40px; margin-right: 8px; padding: 0 16px 0 20px; border-radius: 999px;
-  background: var(--ink); color: var(--on-ink); transition: opacity 150ms; }
-.primary:hover { opacity: .82; }
-.primary svg { width: 15px; height: 15px; }
+.primary { display: flex; align-items: center; gap: 9px; height: 56px; padding: 0 26px 0 30px; border-radius: 999px; font-size: 17px; font-weight: 500; letter-spacing: -.01em;
+  background: var(--ink); color: var(--on-ink); box-shadow: 0 8px 24px rgba(0,0,0,.28); animation: beckon 2.4s ease-in-out infinite; transition: opacity 150ms; }
+.primary:hover { opacity: .86; }
+.primary:disabled { opacity: .5; cursor: default; animation: none; }
+.primary svg { width: 19px; height: 19px; }
+@keyframes beckon { 50% { box-shadow: 0 8px 24px rgba(0,0,0,.28), 0 0 0 9px rgba(255,255,255,.45); } }
+
+/* Your turn: the agent's orb grows until it fills the screen, leaving a window onto the browser. */
+.flood { position: fixed; inset: 0; opacity: 0; pointer-events: none; transition: opacity 350ms ease;
+  background: radial-gradient(120% 150% at 12% 0%, var(--a), var(--b) 28%, var(--c) 68%, var(--d) 135%); }
+body.turn .flood { opacity: 1; }
+body.turn { background: var(--c); }
+body.turn .bar, .turn-banner, body.turn main { --ink: #000; --on-ink: #fff; --body: rgba(0,0,0,.72); --quiet: rgba(0,0,0,.6); --tray: rgba(255,255,255,.34); --tray-hover: rgba(255,255,255,.55); --line: rgba(0,0,0,.14); --selected: #fff; --card: #fff; --page: #fff; color: var(--ink); }
+body.turn .status { visibility: hidden; }
+body.turn main { background: none; box-shadow: none; }
+body.turn #screen canvas { box-shadow: 0 0 0 3px #fff; }
+
+.turn-banner { position: relative; z-index: 1; flex: none; display: flex; align-items: center; gap: 20px; padding: 4px 28px 14px; }
+.turn-banner .orb.large { width: 68px; height: 68px; margin: 0; box-shadow: 0 0 0 3px rgba(255,255,255,.75); }
+.turn-copy { flex: 1; min-width: 0; }
+.turn-copy h2 { margin: 0; font-size: 32px; line-height: 36px; font-weight: 500; letter-spacing: -.035em; }
+.turn-reason { margin: 3px 0 0; font-size: 17px; line-height: 24px; letter-spacing: -.012em; overflow-wrap: anywhere; }
+.turn-sub { margin: 1px 0 0; color: var(--body); font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.turn-actions { flex: none; display: flex; align-items: center; gap: 12px; }
+.turn-actions .ghost { height: 44px; padding: 0 20px; font-size: 14.5px; }
+
+.turn-flash { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; color: #000; pointer-events: none;
+  background: radial-gradient(90% 120% at 50% 40%, var(--a), var(--b) 34%, var(--c) 76%, var(--d) 140%); animation: flash 1900ms ease forwards; }
+.turn-flash strong { font-size: clamp(56px, 11vw, 132px); line-height: 1; font-weight: 500; letter-spacing: -.045em; }
+.turn-flash span { max-width: 760px; font-size: clamp(17px, 2vw, 24px); line-height: 1.35; letter-spacing: -.015em; }
+@keyframes flash { 0% { opacity: 0; } 14% { opacity: 1; } 68% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .primary { animation: none; } }
 
 .segments { display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--tray); }
 .segments button { height: 32px; padding: 0 15px; border-radius: 999px; color: var(--body); transition: color 150ms, background 150ms; }
@@ -77,7 +122,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round
 .icon.small svg { width: 15px; height: 15px; }
 
 /* Screen: a warm tray holding the browser */
-.workspace { flex: 1; min-height: 0; display: flex; padding: 0 16px 16px; gap: 12px; }
+.workspace { position: relative; z-index: 1; flex: 1; min-height: 0; display: flex; padding: 0 16px 16px; gap: 12px; }
 main { position: relative; flex: 1; min-width: 0; padding: 12px; border-radius: 20px; background: var(--tray); box-shadow: inset 0 0 0 1px var(--line); }
 #screen { position: relative; width: 100%; height: 100%; }
 #screen > div { position: absolute; inset: 0; }
@@ -88,6 +133,13 @@ main { position: relative; flex: 1; min-width: 0; padding: 12px; border-radius: 
   background: var(--card); white-space: nowrap; box-shadow: var(--soft), 0 12px 32px var(--shot); }
 .takeover button { height: 34px; padding: 0 16px; border-radius: 999px; background: var(--ink); color: var(--on-ink); }
 .takeover button:hover { opacity: .82; }
+
+/* A real field for touch screens, which can't type into a canvas. */
+.typer { display: none; }
+@media (pointer: coarse) {
+  .in-control .typer { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 3; display: flex; gap: 6px; padding: 5px; border-radius: 999px; background: var(--card); box-shadow: var(--soft), 0 12px 32px var(--shot); }
+  .typer input { flex: 1; min-width: 0; height: 36px; padding: 0 14px; border: 0; outline: 0; background: none; color: var(--ink); font: inherit; font-size: 16px; }
+}
 
 /* Sidebar */
 .panel { flex: none; display: flex; flex-direction: column; width: 340px; min-height: 0; border-radius: 20px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
@@ -123,6 +175,7 @@ textarea::placeholder { color: var(--quiet); }
 .ghost:hover:not(:disabled) { background: var(--tray); }
 .ghost:disabled { color: var(--quiet); cursor: default; }
 .send-row { display: flex; align-items: center; gap: 12px; }
+.send-row { flex-wrap: wrap; }
 .send-row .ghost { flex: none; }
 .keys { display: flex; flex-wrap: wrap; gap: 6px; }
 .advanced { display: flex; flex-direction: column; gap: 16px; padding-top: 14px; }
@@ -153,9 +206,17 @@ input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border: 0; bo
   .who { line-height: 30px; }
   .actions { flex: 1; justify-content: flex-end; }
   .modes button { padding: 0 12px; }
-  .primary { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 4; height: 48px; justify-content: center; margin: 0; }
+  .primary { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 4; justify-content: center; }
+  body.turn .status { display: none; }
+  body.turn .workspace { padding-bottom: 80px; }
+  .turn-banner { flex-wrap: wrap; align-items: flex-start; gap: 4px 12px; padding: 0 14px 10px; }
+  .turn-banner .orb.large { width: 42px; height: 42px; }
+  .turn-copy h2 { font-size: 26px; line-height: 30px; }
+  .turn-reason { font-size: 15.5px; line-height: 21px; }
+  .turn-actions { flex: 1 1 100%; }
+  .picker { order: 4; }
+  .picker-list { position: fixed; left: 8px; right: 8px; top: auto; width: auto; margin-top: 8px; }
   #fullscreen { display: none; }
-  .riders { flex: 1 1 100%; order: 4; overflow-x: auto; }
   .workspace { padding: 0 8px 8px; }
   .panel { position: fixed; inset: 0; z-index: 5; width: 100vw; border-radius: 0; }
 }
