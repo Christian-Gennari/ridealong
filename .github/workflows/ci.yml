@@ -1,0 +1,22 @@
+name: CI
+on: push
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+        working-directory: viewer
+      - run: npm test
+        working-directory: viewer
+      - name: Syntax
+        run: |
+          node --check mcp/ridealong-mcp.mjs
+          node --check ridealong-cursor/background.js
+          node --check ridealong-cursor/cursor.js
+      - name: Shell
+        run: shellcheck --severity=warning install.sh setup-agents.sh bin/* scripts/*
