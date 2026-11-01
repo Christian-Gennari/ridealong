@@ -68,6 +68,7 @@
         <input id="typer-text" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" enterkeyhint="send" placeholder="Type into the browser" aria-label="Type into the browser">
         <button class="ghost" type="submit">Send</button>
       </form>
+      <div class="takeover" id="brave-down" hidden><span>Brave isn't responding</span><button id="restart-brave">Restart Brave</button></div>
       <div class="takeover" id="takeover" hidden><span id="takeover-text"></span><button id="take-control">Take control</button></div>
     </main>
 
@@ -151,6 +152,7 @@
       <footer class="foot">
         <span class="dot" id="connection-dot"></span>
         <span id="connection">Connecting</span>
+        <span id="version"></span>
         <span class="size" id="size"></span>
         <button class="link" id="reconnect">Reconnect</button>
       </footer>

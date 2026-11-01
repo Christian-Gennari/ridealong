@@ -1,6 +1,7 @@
 // The viewer service: serves the UI, relays VNC over a WebSocket, and holds the
 // shared state (what the agent is doing, who has control). Agents reach it
 // through mcp/ridealong-mcp.mjs and keep working if it is down.
+import { execFile } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -88,6 +89,26 @@ setInterval(() => {
   if (lost.length) publish();
 }, 5000).unref();
 
+// Brave can freeze without exiting, and then nothing but a restart helps.
+const BRAVE_CHECK_MS = 5000;
+const BRAVE_STRIKES = 3;
+let braveStrikes = 0;
+const braveDown = () => braveStrikes >= BRAVE_STRIKES;
+setInterval(async () => {
+  const was = braveDown();
+  try {
+    await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`, { signal: AbortSignal.timeout(3000) });
+    braveStrikes = 0;
+  } catch {
+    braveStrikes += 1;
+  }
+  if (was !== braveDown()) publish();
+}, BRAVE_CHECK_MS).unref();
+
+// Inside a container Brave only updates with the image.
+const BRAVE_STALE_DAYS = 14;
+const imageAge = () => (Date.now() / 1000 - Number(process.env.RIDEALONG_BUILT || Date.now() / 1000)) / 86400;
+
 const canAct = () => state.mode !== "control";
 const locked = () => state.mode === "watch" || (state.mode === "auto" && !state.turns.length);
 const view = () => {
@@ -102,6 +123,8 @@ const view = () => {
     elsewhere: followed === null && pinned,
     turnHere: state.turns[0]?.session === followed,
     activity: state.activity, locked: locked(), paused: !canAct(),
+    braveDown: braveDown(), version: process.env.RIDEALONG_VERSION || "dev",
+    staleDays: imageAge() > BRAVE_STALE_DAYS ? Math.floor(imageAge()) : 0,
   };
 };
 
@@ -203,6 +226,12 @@ const api = {
     streams.add(res);
     const ping = setInterval(() => res.write(": ping\n\n"), 20000);
     req.on("close", () => { clearInterval(ping); streams.delete(res); });
+  },
+  "GET /api/health": (req, res) => json(res, braveDown() ? 503 : 200, { version: process.env.RIDEALONG_VERSION || "dev", sessions: sessions.size }),
+  "POST /api/brave/restart": (req, res) => {
+    if (!braveDown()) return json(res, 409, { error: "Brave is responding" });
+    // The supervisor starts it again.
+    execFile("pkill", ["-9", "-x", "brave"], () => json(res, 200, {}));
   },
   "GET /api/gate": async (req, res) => {
     if (!canAct()) await nextChange();
@@ -347,12 +376,12 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   if (!hostAllowed(req)) {
     res.writeHead(403, { "Content-Type": "text/plain; charset=utf-8" });
-    return res.end(`This address isn't allowed. Add ${hostname(req.headers.host)} with: sudo ./install.sh --allow-host ${hostname(req.headers.host)}`);
+    return res.end(`This address isn't allowed. Add ${hostname(req.headers.host)} with: ridealong up --allow-host ${hostname(req.headers.host)}`);
   }
   const extension = fromExtension(req, url);
   if (!extension && !authorised(req, url)) {
     res.writeHead(401, { "Content-Type": "text/plain; charset=utf-8" });
-    return res.end("Open the link the installer printed, including its token.");
+    return res.end("Open the link ridealong up printed, including its token.");
   }
   if (TOKEN && url.searchParams.get("token") === TOKEN) {
     res.setHeader("Set-Cookie", `ridealong=${TOKEN}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);

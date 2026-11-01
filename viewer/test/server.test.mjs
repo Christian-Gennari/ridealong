@@ -133,6 +133,17 @@ test("a token replaces the host check", async () => {
   assert.equal((await raw(locked, "/api/gate?token=secret", { headers: { Host: "192.168.1.5:6086" } })).status, 200);
 });
 
+test("Brave can only be restarted once it stops answering", async () => {
+  assert.equal((await a.view()).braveDown, false);
+  assert.equal((await raw(base, "/api/health")).status, 200);
+});
+
+test("an old image asks for an update", async () => {
+  const old = api(await start(16206, { RIDEALONG_BUILT: String(Math.floor(Date.now() / 1000) - 20 * 86400) }));
+  assert.equal((await old.view()).staleDays, 20);
+  assert.equal((await a.view()).staleDays, 0);
+});
+
 test("a new turn pushes to the notify URL", async () => {
   const got = new Promise((resolve) => {
     const hook = http.createServer((req, res) => {

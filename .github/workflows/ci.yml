@@ -19,4 +19,6 @@ jobs:
           node --check ridealong-cursor/background.js
           node --check ridealong-cursor/cursor.js
       - name: Shell
-        run: shellcheck --severity=warning install.sh setup-agents.sh bin/* scripts/*
+        run: shellcheck --severity=warning ridealong scripts/* docker/ridealong-mcp
+      - name: Image
+        run: scripts/smoke

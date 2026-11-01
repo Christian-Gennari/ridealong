@@ -334,6 +334,8 @@ const render = () => {
     b.setAttribute("aria-checked", String(b.dataset.mode === mode));
   });
   document.body.classList.toggle("in-control", !view.locked);
+  $("brave-down").hidden = !view.braveDown;
+  $("version").textContent = view.staleDays ? `· Brave is ${view.staleDays} days old. Run ridealong update` : `· ${view.version}`;
   renderActivity();
   if (!turn) document.title = "Ridealong";
 };
@@ -447,6 +449,7 @@ $("fullscreen").addEventListener("click", () => {
   else document.documentElement.requestFullscreen();
 });
 $("reconnect").addEventListener("click", connect);
+$("restart-brave").addEventListener("click", () => post("/api/brave/restart"));
 $("send-clipboard").addEventListener("click", () => rfb?.clipboardPasteFrom($("clipboard").value));
 
 // Phones have no keyboard for a canvas, so a 2FA code goes in through a real field.

@@ -10,7 +10,7 @@ Ridealong runs a real, logged-in Brave browser on your server. Claude Code, Code
 
 Agents get stuck wherever there's no API: dashboards, admin panels, anything behind a login. Headless browsers can't get past 2FA, and you can't see what they're doing. Ridealong gives agents a real browser that stays signed in, and gives you a live view with a clean way to step in.
 
-- **Real browser:** Brave with its own profile, so logins persist. It runs permanently on a virtual display, survives crashes and reboots, and starts on a clean tab.
+- **Real browser:** Brave with its own profile, so logins persist. It runs in a locked-down container, survives crashes and reboots, and starts on a clean tab.
 - **Live viewer:** see the agent's cursor and what it's doing, from any device.
 - **Human handover:** the agent asks, the whole screen tells you it's your turn, you hand back. It waits for you and resumes on its own.
 - **Safe by default:** the viewer is locked while agents work, and agents pause when you take control.
@@ -19,17 +19,32 @@ Agents get stuck wherever there's no API: dashboards, admin panels, anything beh
 
 ## Install
 
-Tested on Ubuntu 24.04 (x86-64). Debian and arm64 should work but haven't been tested.
+You need Linux with Docker and Compose. It's tested on Ubuntu 24.04 (x86-64).
 
 ```
 git clone https://github.com/Christian-Gennari/ridealong
 cd ridealong
-sudo ./install.sh
+./ridealong up
 ```
 
-It takes about 3 minutes and prints your viewer link. Then open the viewer, choose **Control**, sign into your accounts in Brave, and go back to **Auto**.
+The first build takes about 3 minutes. It prints your viewer link and connects the MCP clients it finds. Then open the viewer, choose **Control**, sign into your accounts in Brave, and go back to **Auto**.
 
-To upgrade, `git pull` and run it again. To remove it, run `sudo ./install.sh --uninstall`; your Brave profile stays in `~/.ridealong-browser`.
+Everything runs in one container, so nothing is installed on the server except the `ridealong` command in `~/.local/bin`. It starts again on its own after a reboot.
+
+| Command | What it does |
+|---|---|
+| `ridealong up` | Start it, building it the first time |
+| `ridealong down` | Stop it |
+| `ridealong restart` | Restart it |
+| `ridealong status` | Show whether it's healthy and where to find it |
+| `ridealong logs` | Follow the logs |
+| `ridealong update` | Pull the latest code, refresh Brave and restart |
+| `ridealong connect` | Connect MCP clients you've installed since |
+| `ridealong uninstall` | Remove the container and agent config, keeping your profile and files |
+
+Brave only updates with the image, so run `ridealong update` regularly. The viewer reminds you after 14 days.
+
+Moving from an older install that ran directly on the server? Run `./ridealong migrate`. It asks for `sudo` once, removes that install and carries on with your existing Brave profile.
 
 ## Using it
 
@@ -45,7 +60,7 @@ When an agent needs you, the whole viewer floods with that agent's colour and sa
 
 ![The viewer flooded orange while Claude waits at a real GitHub sign-in page](docs/images/your-turn.png)
 
-You'll also hear a chime. If the viewer isn't in front of you, its tab title blinks, and **Settings** can turn on a notification on that device. To get a push on your phone when nothing's open, give the installer a URL, such as an [ntfy](https://ntfy.sh) topic: `sudo ./install.sh --notify https://ntfy.sh/your-secret-topic`. The reason the agent gave goes to that URL, so use one you trust.
+You'll also hear a chime. If the viewer isn't in front of you, its tab title blinks, and **Settings** can turn on a notification on that device. To get a push on your phone when nothing's open, pass a URL, such as an [ntfy](https://ntfy.sh) topic: `ridealong up --notify https://ntfy.sh/your-secret-topic`. The reason the agent gave goes to that URL, so use one you trust.
 
 On a phone or tablet, the viewer adds a **Type into the browser** box whenever the screen is unlocked, because touch keyboards can't type into a remote screen. Tap the field in the browser, type or paste your code in the box, and press **Send**.
 
@@ -67,7 +82,7 @@ Isolation is per MCP connection. Subagents that share one connection also share 
 
 ## Reaching the viewer
 
-The viewer controls a logged-in browser, so it stays on `127.0.0.1` unless you choose otherwise. The installer picks the option automatically; override it with `--network`.
+The viewer controls a logged-in browser, so it stays on `127.0.0.1` unless you choose otherwise. `ridealong up` picks the option automatically; override it with `--network`.
 
 | Option | How | Best for |
 |---|---|---|
@@ -80,14 +95,14 @@ Never expose the viewer to the internet without a login in front of it.
 
 ## Connect any MCP client
 
-Ridealong is a standard MCP server, so it's plug and play: if a tool can run a local MCP server, it works, whichever model is behind it. Everything points at one command, `ridealong-mcp`.
+Ridealong is a standard MCP server, so it's plug and play: if a tool can run a local MCP server, it works, whichever model is behind it. Everything points at one command, `ridealong mcp`, which also starts the container if it's stopped.
 
-The installer connects Claude Code, Codex, Gemini CLI and Hermes if it finds them. For anything else:
+`ridealong up` connects Claude Code, Codex, Gemini CLI and Hermes if it finds them. For anything else:
 
 ```bash
-claude mcp add ridealong -- ridealong-mcp --agent Claude      # Claude Code
-codex mcp add ridealong -- ridealong-mcp --agent Codex        # Codex
-gemini mcp add ridealong ridealong-mcp -- --agent Gemini      # Gemini CLI
+claude mcp add ridealong -- ridealong mcp --agent Claude      # Claude Code
+codex mcp add ridealong -- ridealong mcp --agent Codex        # Codex
+gemini mcp add ridealong ridealong mcp --agent Gemini         # Gemini CLI
 ```
 
 Tools configured with JSON, like Cursor and Claude Desktop, use this:
@@ -95,39 +110,41 @@ Tools configured with JSON, like Cursor and Claude Desktop, use this:
 ```json
 {
   "mcpServers": {
-    "ridealong": { "command": "ridealong-mcp", "args": ["--agent", "Cursor"] }
+    "ridealong": { "command": "ridealong", "args": ["mcp", "--agent", "Cursor"] }
   }
 }
 ```
 
-`--agent` is the name you'll see in the viewer. Clients receive the usage rules when they connect. If your client has a tool timeout, set it above 11 minutes, because `browser_handover` waits up to 10 for you. The installer does this for Codex and Hermes.
+`--agent` is the name you'll see in the viewer. Clients receive the usage rules when they connect. If your client has a tool timeout, set it above 11 minutes, because `browser_handover` waits up to 10 for you. `ridealong connect` does this for Codex and Hermes.
 
 The ChatGPT web and desktop apps can't use it: they only connect to remote MCP servers, and this one shouldn't be exposed to the internet. Use Codex instead.
 
+## Files and localhost
+
+Brave runs in a container, so it sees only one folder of yours, `~/ridealong-files`. Agents upload from it and downloads land in it. It has the same path inside and out, so the paths agents get back work as they are.
+
+`localhost` in this browser is the container, not your server. To let agents open a dev server running on the machine, use `ridealong up --host-network`. Brave then shares the server's network, so you give up the network isolation.
+
 ## How it works
 
-| Service | What it does |
-|---|---|
-| `ridealong-display` | Xvfb virtual display |
-| `ridealong-desktop` | Lightweight XFCE session |
-| `ridealong-brave` | Brave, with remote debugging on `127.0.0.1:9222` |
-| `ridealong-vnc` | x11vnc on `127.0.0.1:5900` |
-| `ridealong-viewer` | The web UI, the VNC relay and who-has-control |
+One container runs Xvfb, a bare window manager, Brave, x11vnc and the viewer, with a small supervisor that brings back whatever stops. If Brave freezes, the viewer offers to restart it. Brave's profile lives in `~/.ridealong-browser` on the server, so logins survive updates.
 
-`ridealong-mcp` is a small wrapper in front of a pinned `@playwright/mcp`. It tells the viewer and a browser extension what's happening, adds a short pause before each click so you can follow it, holds tools while you have control, and adds the `browser_handover` tool. If the viewer is down, agents keep working, and they rejoin it when it comes back. Set `RIDEALONG_PLAIN=1` to bypass the wrapper entirely.
+`ridealong mcp` runs a small wrapper inside the container, in front of a pinned `@playwright/mcp`. It tells the viewer and a browser extension what's happening, adds a short pause before each click so you can follow it, holds tools while you have control, and adds the `browser_handover` tool. If the viewer goes down, agents keep working and rejoin when it comes back.
 
-Check on it with `ridealong-status`, and read logs with `journalctl -u ridealong-brave -f`.
+Only the viewer port leaves the container. VNC and Brave's debugging port stay inside it.
 
-To work on Ridealong itself, run `npm test` in `viewer/`.
+To work on Ridealong itself, run `npm test` in `viewer/`, and `scripts/smoke` to boot the real image.
 
 ## Security
 
 Treat Ridealong as giving your agents your logged-in browser, and sign in only where you'd accept that.
 
-- **Saved passwords are stored unencrypted** in `~/.ridealong-browser`, because there's nobody at boot to unlock a keyring. Any process running as your user can read them and can drive the browser. VNC and Brave's debugging port have no password, so on a shared server other local users can drive it too. Keep payment and other high-value accounts out of this profile.
+- **Agents read untrusted pages**, so prompt injection is a real risk. They're told to treat page text as data, which reduces the risk but doesn't remove it.
+- **The container is locked down:** it runs as your user with a read-only filesystem, no capabilities except `SYS_CHROOT`, and no new privileges. Brave's own sandbox stays on, which is why `docker/seccomp.json` adds namespaces to Docker's default profile. A compromised page has to escape Brave's sandbox and then the container, and even then it finds only your Brave profile and shared folder.
+- **Saved passwords are stored unencrypted** in `~/.ridealong-browser`, because there's nobody at boot to unlock a keyring. Any process running as your user can read them. Keep payment and other high-value accounts out of this profile.
+- **Anyone in the `docker` group is effectively root,** and can open a shell in the container. That's true of Docker in general.
 - **The viewer has no login of its own,** except the secret link in LAN mode. The lock protects against accidents, not people.
 - **Other websites can't reach it:** the viewer refuses other origins, and any address it wasn't set up with, which stops DNS rebinding.
-- Agents read untrusted pages, so prompt injection is a real risk. The installed instructions tell them to treat page text as data, which reduces the risk but doesn't remove it.
 
 ## License
 

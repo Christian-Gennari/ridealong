@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Removes the older install that ran directly on the server, for `ridealong migrate`.
+# Leaves the Brave profile and the packages it installed.
+set -euo pipefail
+APP=/opt/ridealong
+[ "$(id -u)" = 0 ] || { echo "Run with sudo."; exit 1; }
+
+for s in ridealong-display ridealong-desktop ridealong-vnc ridealong-viewer ridealong-brave; do
+  systemctl disable --now "$s" 2>/dev/null || true
+  rm -f "/etc/systemd/system/$s.service"
+done
+systemctl daemon-reload
+systemctl reset-failed 'ridealong-*' 2>/dev/null || true
+systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target
+if [ -f "$APP/default-target" ]; then systemctl set-default "$(cat "$APP/default-target")"; fi
+rm -rf "$APP" /usr/local/bin/ridealong-status /usr/local/bin/ridealong-prestart /usr/local/bin/ridealong-mcp

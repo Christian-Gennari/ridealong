@@ -1,0 +1,5 @@
+#!/bin/sh
+# The MCP server, on stdio. Agents reach it with: ridealong mcp --agent NAME
+cd "$RIDEALONG_FILES" || exit 1
+exec node /app/mcp/ridealong-mcp.mjs "$@" -- \
+  /app/mcp/node_modules/.bin/playwright-mcp --cdp-endpoint http://127.0.0.1:9222 --output-dir "$RIDEALONG_FILES"

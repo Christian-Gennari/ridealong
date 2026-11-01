@@ -1,0 +1,46 @@
+# Started by the ridealong command, which fills these in from
+# ~/.config/ridealong/config.env.
+name: ridealong
+services:
+  ridealong:
+    container_name: ridealong
+    image: ridealong:local
+    build:
+      context: .
+      args:
+        VERSION: ${RIDEALONG_VERSION:-dev}
+        BUILT: ${RIDEALONG_BUILT:-0}
+        REFRESH: ${RIDEALONG_REFRESH:-0}
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 20s
+
+    # Brave's own sandbox needs user namespaces (docker/seccomp.json) and chroot.
+    # Everything else Docker would allow is taken away.
+    user: ${RIDEALONG_UID}:${RIDEALONG_GID}
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [SYS_CHROOT]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp:docker/seccomp.json
+    shm_size: 2g
+    tmpfs:
+      - /tmp:mode=1777,exec
+
+    ports:
+      - ${RIDEALONG_BIND:-127.0.0.1}:${RIDEALONG_PORT:-6086}:6086
+    volumes:
+      - ${RIDEALONG_PROFILE}:/profile
+      - ${RIDEALONG_FILES}:${RIDEALONG_FILES}
+    environment:
+      RIDEALONG_FILES: ${RIDEALONG_FILES}
+      RIDEALONG_RESOLUTION: ${RIDEALONG_RESOLUTION:-1920x1080}
+      RIDEALONG_HOST_NETWORK: ${RIDEALONG_HOST_NETWORK:-0}
+      VIEWER_HOST: 0.0.0.0
+      VIEWER_PORT: 6086
+      VIEWER_URL: ${RIDEALONG_URL:-}
+      VIEWER_TOKEN: ${RIDEALONG_TOKEN:-}
+      ALLOWED_HOSTS: ${RIDEALONG_ALLOWED_HOSTS:-}
+      NOTIFY_URL: ${RIDEALONG_NOTIFY_URL:-}
+      TZ: ${RIDEALONG_TZ:-UTC}

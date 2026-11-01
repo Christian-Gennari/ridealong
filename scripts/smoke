@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Boots the real image in a throwaway home and checks what matters most.
+set -euo pipefail
+REPO=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
+DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker}
+HOME=$(mktemp -d)
+export HOME DOCKER_CONFIG
+trap '"$REPO/ridealong" uninstall >/dev/null 2>&1 || true; rm -rf "$HOME"' EXIT
+PORT=${SMOKE_PORT:-16080}
+
+"$REPO/ridealong" up --network ssh --port "$PORT"
+
+docker exec ridealong sh -c '
+  renderer=$(pgrep -f -- --type=renderer | head -1)
+  [ -n "$renderer" ] || { echo "no renderer"; exit 1; }
+  grep -q "^Seccomp:[[:space:]]*2" "/proc/$renderer/status" || { echo "renderer has no seccomp filter"; exit 1; }
+  grep -q "^NoNewPrivs:[[:space:]]*1" "/proc/$renderer/status" || { echo "renderer can gain privileges"; exit 1; }
+  [ "$(readlink "/proc/$renderer/ns/pid")" != "$(readlink /proc/1/ns/pid)" ] || { echo "renderer is not sandboxed"; exit 1; }
+  ! touch /app/x 2>/dev/null || { echo "filesystem is writable"; exit 1; }
+'
+curl -fsS -m 5 -o /dev/null "http://127.0.0.1:$PORT/"
+if curl -fsS -m 2 -o /dev/null http://127.0.0.1:9222/json/version 2>/dev/null && ! command -v ridealong-status >/dev/null; then
+  echo "Brave's debugging port is exposed"; exit 1
+fi
+
+tools=$(printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | { cat; sleep 3; } | timeout 20 "$REPO/ridealong" mcp --agent Smoke)
+grep -q browser_handover <<< "$tools" || { echo "no browser_handover tool"; exit 1; }
+
+echo "Smoke test passed."

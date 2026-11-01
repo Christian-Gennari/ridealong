@@ -1,0 +1,10 @@
+**
+!viewer/package.json
+!viewer/package-lock.json
+!viewer/server.mjs
+!viewer/public
+!mcp/package.json
+!mcp/package-lock.json
+!mcp/ridealong-mcp.mjs
+!ridealong-cursor
+!docker

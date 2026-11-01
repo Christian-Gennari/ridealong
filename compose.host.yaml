@@ -1,0 +1,9 @@
+# ridealong up --host-network: Brave shares the server's network, so agents can
+# open localhost, at the cost of the network isolation.
+services:
+  ridealong:
+    network_mode: host
+    ports: !reset []
+    environment:
+      VIEWER_HOST: 127.0.0.1
+      VIEWER_PORT: ${RIDEALONG_PORT:-6086}
