@@ -68,9 +68,10 @@
     </div>`;
 
   const IDLE_MS = 20000;
+  const STORE = "ridealong-cursor"; // per tab, so sessions can't show each other's cursor
   let host, cursor, arrow, pill, pillText, ring;
   let pos = null, agent = "Agent", frame = 0;
-  let idleTimer, labelTimer, saveTimer, grouped = false;
+  let idleTimer, labelTimer, saveTimer, grouped = false, session = null, viewer = null;
 
   const mount = () => {
     if (host?.isConnected || !document.documentElement) return;
@@ -107,7 +108,9 @@
     const from = pos ?? { x, y };
     pos = { x, y };
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => chrome.storage.local.set({ pos, agent }), 150);
+    saveTimer = setTimeout(() => {
+      try { sessionStorage.setItem(STORE, JSON.stringify({ pos, agent })); } catch { /* optional */ }
+    }, 150);
     const dx = x - from.x, dy = y - from.y, dist = Math.hypot(dx, dy);
     pill?.classList.toggle("flip", x > innerWidth - 300);
     if (dist < 2) return put(x, y);
@@ -144,7 +147,7 @@
   const joinGroup = () => {
     if (grouped || agent === "Agent") return;
     grouped = true;
-    chrome.runtime.sendMessage({ group: agent }).catch(() => {});
+    chrome.runtime.sendMessage({ group: agent, session, viewer }).catch(() => {});
   };
 
   // The session the viewer follows comes to the front. Others work in the background.
@@ -156,6 +159,7 @@
     mount();
     if (!host) return;
     identify(m.agent);
+    if (m.session) { session = m.session; viewer = m.viewer; }
     switch (m.kind) {
       case "move":
         glide(m.x, m.y); wake(); break;
@@ -181,13 +185,16 @@
     }
   }
 
-  // Carry the cursor across navigations.
-  chrome.storage.local.get(["pos", "agent"]).then((v) => {
-    const ready = () => {
-      if (v.agent) agent = v.agent;
-      if (v.pos) { pos = v.pos; mount(); if (host) wake(); }
-    };
-    if (document.documentElement) ready();
-    else document.addEventListener("readystatechange", ready, { once: true });
-  });
+  // Carry the cursor across navigations within this tab.
+  const restore = () => {
+    let saved = null;
+    try { saved = JSON.parse(sessionStorage.getItem(STORE)); } catch { /* optional */ }
+    if (!saved?.pos) return;
+    agent = saved.agent ?? agent;
+    pos = saved.pos;
+    mount();
+    if (host) wake();
+  };
+  if (document.documentElement) restore();
+  else document.addEventListener("readystatechange", restore, { once: true });
 })();

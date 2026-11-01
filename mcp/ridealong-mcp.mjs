@@ -69,7 +69,7 @@ const callChild = (params, timeoutMs) => new Promise((resolve, reject) => {
 });
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const envelope = (msg) => JSON.stringify({ ridealong: 1, agent: label, ...msg });
+const envelope = (msg) => JSON.stringify({ ridealong: 1, agent: label, session: sessionId, viewer: VIEWER, ...msg });
 
 const overlay = (msg) => callChild({
   name: "browser_evaluate",
@@ -90,14 +90,32 @@ const viewer = async (route, { body, timeoutMs = 800 } = {}) => {
 // Each MCP connection is one agent session: it gets a label and its own tab, so
 // parallel sessions can't navigate each other's pages.
 let session = null;
+let sessionId = null;
 let label = AGENT;
 const register = () => (session ??= viewer("/api/session", { body: { agent: AGENT } })
-  .then((r) => { label = r.label; return r.id; })
+  .then((r) => { label = r.label; sessionId = r.id; return r.id; })
   .catch(() => null));
 
+// Tells the viewer which tab is ours, so it can bring it forward instantly.
+const TARGET_CODE = `async (page) => {
+  const cdp = await page.context().newCDPSession(page);
+  const { targetInfo } = await cdp.send("Target.getTargetInfo");
+  await cdp.detach();
+  return targetInfo.targetId;
+}`;
+const shareTarget = async () => {
+  const id = await session;
+  if (!id) return;
+  const r = await callChild({ name: "browser_run_code_unsafe", arguments: { code: TARGET_CODE } }, 2000).catch(() => null);
+  const target = JSON.stringify(r?.result ?? "").match(/\b[0-9A-F]{32}\b/)?.[0];
+  if (target) await viewer("/api/session/target", { body: { id, target } }).catch(() => {});
+};
+
 let ownTab = null;
+let settled = false;
 const claimTab = () => (ownTab ??= register()
   .then(() => callChild({ name: "browser_tabs", arguments: { action: "new" } }))
+  .then(shareTarget)
   .catch(() => {}));
 
 const report = async (text, quiet) => {
@@ -187,10 +205,18 @@ const handleCall = async (msg) => {
   if (name === "browser_type" && args.slowly === undefined && String(args.text ?? "").length <= 80) {
     params.arguments = { ...args, slowly: true };
   }
+  if (name === "browser_tabs") await viewer("/api/session/tabs", { body: {} }).catch(() => {});
   const shot = name === "browser_take_screenshot";
   if (shot) await overlay({ cmd: "hide" });
   const reply = await callChild(params);
   if (shot) await overlay({ cmd: "show" });
+  if (name === "browser_tabs" && args.action !== "list") await shareTarget();
+  // A navigation replaces the page that just heard from us, so introduce ourselves again.
+  if (text && name === "browser_navigate") {
+    await overlay({ cmd: "status", text });
+    // A new tab's first load can pull it to the front, so ask for the screen back.
+    if (!settled) { settled = true; await shareTarget(); }
+  }
   toClient({ ...reply, id: msg.id });
 };
 

@@ -115,6 +115,11 @@ cp -r "$SRC/viewer/public" "$SRC/viewer/server.mjs" "$SRC/viewer/package.json" "
 cp "$SRC/setup-agents.sh" "$APP/"
 chmod +x "$APP/setup-agents.sh" "$APP/scripts/"*
 (cd "$APP/viewer" && PATH=$APP/node/bin:$PATH npm ci --omit=dev --silent --no-audit --no-fund)
+# Brave keeps running a cached background script unless its file name changes,
+# even across version bumps, so every install gets a new name.
+STAMP=$(date +%s)
+mv "$APP/ridealong-cursor/background.js" "$APP/ridealong-cursor/background-$STAMP.js"
+sed -i "s/\"background.js\"/\"background-$STAMP.js\"/; s/\"version\": \"\([0-9]*\.[0-9]*\)\.[0-9]*\"/\"version\": \"\1.$(( STAMP % 60000 ))\"/" "$APP/ridealong-cursor/manifest.json"
 chmod -R a+rX "$APP"
 
 echo "=== network"

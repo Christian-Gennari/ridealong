@@ -106,7 +106,11 @@ const renderRiders = () => {
     orb.className = "orb small";
     orb.dataset.agent = base(x.label);
     b.append(orb, x.label);
-    b.addEventListener("click", () => post("/api/follow", { id: x.id }));
+    b.addEventListener("click", () => {
+      // Answer the click now; the server confirms a moment later.
+      $("riders").querySelectorAll("button").forEach((o) => o.setAttribute("aria-current", String(o === b)));
+      post("/api/follow", { id: x.id });
+    });
     return b;
   })));
 };
@@ -167,6 +171,9 @@ const render = () => {
   } else if (mode === "control") {
     $("who").textContent = "You have control";
     $("what").textContent = "Agents are waiting";
+  } else if (view.elsewhere) {
+    $("who").textContent = "Your tab";
+    $("what").textContent = "No agent is working here";
   } else if (working) {
     $("who").textContent = agent.name;
     $("what").textContent = agent.text;

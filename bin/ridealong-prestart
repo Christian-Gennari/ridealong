@@ -25,10 +25,12 @@ def edit(path, change):
     except Exception as e:
         print(f"ridealong-prestart: {e}", file=sys.stderr)
 
-def clean_exit(prefs):
+def clean_start(prefs):
     profile = prefs.setdefault("profile", {})
     profile["exit_type"] = "Normal"
     profile["exited_cleanly"] = True
+    # Always start on a new tab. Restored agent tabs would have no owner.
+    prefs.setdefault("session", {})["restore_on_startup"] = 5
 
 def no_prompts(state):
     brave = state.setdefault("brave", {})
@@ -39,7 +41,7 @@ def no_prompts(state):
     brave["dont_ask_for_crash_reporting"] = True
 
 if os.path.exists(os.path.join(profile_dir, "Default", "Preferences")):
-    edit(os.path.join(profile_dir, "Default", "Preferences"), clean_exit)
+    edit(os.path.join(profile_dir, "Default", "Preferences"), clean_start)
 edit(os.path.join(profile_dir, "Local State"), no_prompts)
 PY2
 exit 0

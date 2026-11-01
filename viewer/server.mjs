@@ -11,6 +11,7 @@ import { WebSocketServer } from "ws";
 const HOST = process.env.VIEWER_HOST || "127.0.0.1";
 const PORT = Number(process.env.VIEWER_PORT || 6086);
 const VNC_PORT = Number(process.env.VNC_PORT || 5900);
+const CDP_PORT = Number(process.env.CDP_PORT || 9222);
 const TOKEN = process.env.VIEWER_TOKEN || "";
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 const ACTIVITY_LIMIT = 40;
@@ -23,22 +24,41 @@ const streams = new Set();
 let waiters = [];
 let nextTurn = 0;
 let nextSession = 0;
-let followed = null; // the session the screen shows
-let pinned = false;  // the viewer chose it, so don't move on when it goes quiet
+let followed = null; // the session whose tab is in front
+let pinned = false;  // the human chose this, so don't move on when it goes quiet
+let shownTurn = null; // the handover we've already brought forward
+let activated = null;
+let agentTabsUntil = 0; // tab changes until then are an agent's doing, not the human's
+const AGENT_TAB_MS = 2500;
+const AGENT_START_MS = 20000; // a session's first tab can take this long to connect
+const expectAgentTab = (ms = AGENT_TAB_MS) => { agentTabsUntil = Date.now() + ms; };
 
 const ACTIVE_MS = 30000;
 const active = () => [...sessions.values()].filter((x) => x.text && Date.now() - x.at < ACTIVE_MS);
 
 // One session owns the screen at a time, so parallel agents don't flip tabs.
-// A session waiting on the human always wins; otherwise stay put until it goes quiet.
+// A new handover comes forward once; after that the human decides where to look.
 const pickFollowed = () => {
   const turn = state.turns[0];
-  if (turn) { followed = turn.session; pinned = false; return; }
-  const live = active();
-  if (pinned && sessions.has(followed)) return;
+  if (turn && turn.id !== shownTurn) {
+    shownTurn = turn.id;
+    followed = turn.session;
+    pinned = true;
+    return;
+  }
+  if (pinned && (followed === null || sessions.has(followed))) return;
   pinned = false;
+  const live = active();
   if (live.some((x) => x.id === followed)) return;
   followed = live.sort((a, b) => b.at - a.at)[0]?.id ?? followed;
+};
+
+// Brings a session's tab forward straight away, over the browser's debugging port.
+const activateTab = () => {
+  const target = sessions.get(followed)?.target;
+  if (!target || activated === target) return;
+  activated = target;
+  fetch(`http://127.0.0.1:${CDP_PORT}/json/activate/${target}`, { signal: AbortSignal.timeout(1000) }).catch(() => {});
 };
 
 const canAct = () => state.mode !== "control";
@@ -48,13 +68,15 @@ const view = () => {
   return {
     mode: state.mode, turn: state.turns[0] ?? null, waiting: Math.max(0, state.turns.length - 1),
     agent: current?.text ? { name: current.label, text: current.text, at: current.at } : null,
-    sessions: active().map((x) => ({ id: x.id, label: x.label, followed: x.id === followed })),
+    sessions: [...sessions.values()].filter((x) => x.text).map((x) => ({ id: x.id, label: x.label, followed: x.id === followed })),
+    elsewhere: followed === null && pinned,
     activity: state.activity, locked: locked(), paused: !canAct(),
   };
 };
 
 const publish = () => {
   pickFollowed();
+  activateTab();
   const frame = `data: ${JSON.stringify(view())}\n\n`;
   for (const res of streams) res.write(frame);
   const ready = waiters;
@@ -142,7 +164,25 @@ const api = {
     while (taken.has(n === 1 ? base : `${base} ${n}`)) n += 1;
     const session = { id: String(++nextSession), label: n === 1 ? base : `${base} ${n}`, text: "", at: 0 };
     sessions.set(session.id, session);
+    expectAgentTab(AGENT_START_MS);
     json(res, 200, { id: session.id, label: session.label });
+  },
+  // An agent is about to change tabs; opening one also pulls it to the front.
+  "POST /api/session/tabs": async (req, res) => {
+    expectAgentTab();
+    json(res, 200, {});
+  },
+  "POST /api/session/target": async (req, res) => {
+    const { id, target } = await readBody(req);
+    const current = sessions.get(id);
+    if (current && typeof target === "string" && /^[A-Z0-9]+$/i.test(target)) {
+      current.target = target;
+      expectAgentTab();
+      // Put back whatever the human was looking at.
+      activated = null;
+      activateTab();
+    }
+    json(res, 200, {});
   },
   "POST /api/session/end": async (req, res) => {
     const { id } = await readBody(req);
@@ -163,7 +203,15 @@ const api = {
   },
   "POST /api/follow": async (req, res) => {
     const { id } = await readBody(req);
-    if (sessions.has(id) && !state.turns.length) { followed = id; pinned = true; publish(); }
+    if (sessions.has(id)) { followed = id; pinned = true; activated = null; publish(); }
+    json(res, 200, {});
+  },
+  // From the Ridealong extension: the human clicked a tab in Brave.
+  "POST /api/focus": async (req, res) => {
+    const { session } = await readBody(req);
+    const id = sessions.has(session) ? session : null;
+    if (Date.now() < agentTabsUntil) return json(res, 200, {});
+    if (id !== followed) { followed = id; pinned = true; activated = sessions.get(id)?.target ?? null; publish(); }
     json(res, 200, {});
   },
   "POST /api/handover": async (req, res) => {
@@ -189,6 +237,7 @@ const api = {
   },
   "POST /api/done": async (req, res) => {
     if (state.turns.shift()) log("You", "Handed back");
+    if (!state.turns.length) pinned = false;
     if (state.mode === "control" && !state.turns.length) state.mode = "auto";
     publish();
     json(res, 200, {});
@@ -219,16 +268,22 @@ const serveStatic = (res, pathname) => {
   });
 };
 
+// The extension can only change which session the viewer shows, nothing else.
+const fromExtension = (req, url) => url.pathname === "/api/focus"
+  && req.socket.remoteAddress === "127.0.0.1"
+  && (req.headers.origin ?? "").startsWith("chrome-extension://");
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
-  if (!authorised(req, url)) {
+  const extension = fromExtension(req, url);
+  if (!extension && !authorised(req, url)) {
     res.writeHead(401, { "Content-Type": "text/plain; charset=utf-8" });
     return res.end("Open the link the installer printed, including its token.");
   }
   if (TOKEN && url.searchParams.get("token") === TOKEN) {
     res.setHeader("Set-Cookie", `ridealong=${TOKEN}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
   }
-  if (req.method === "POST" && !sameOrigin(req)) return json(res, 403, { error: "origin" });
+  if (req.method === "POST" && !extension && !sameOrigin(req)) return json(res, 403, { error: "origin" });
   const route = api[`${req.method} ${url.pathname}`];
   try {
     if (route) return await route(req, res, url);

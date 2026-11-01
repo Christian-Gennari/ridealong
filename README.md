@@ -10,7 +10,7 @@ Ridealong runs a real, logged-in Brave browser on your server. Claude Code, Code
 
 Agents get stuck wherever there's no API: dashboards, admin panels, anything behind a login. Headless browsers can't get past 2FA, and you can't see what they're doing. Ridealong gives agents a real browser that stays signed in, and gives you a live view with a clean way to step in.
 
-- **Real browser:** Brave with its own profile, so logins persist. It runs permanently on a virtual display and survives crashes and reboots.
+- **Real browser:** Brave with its own profile, so logins persist. It runs permanently on a virtual display, survives crashes and reboots, and starts on a clean tab.
 - **Live viewer:** see the agent's cursor and what it's doing, from any device.
 - **Human handover:** the agent asks, you step in, you hand back. It waits for you and resumes on its own.
 - **Safe by default:** the viewer is locked while agents work, and agents pause when you take control.
@@ -53,7 +53,7 @@ Activity and settings live in the sidebar, in light or dark.
 
 Every agent session gets its own tab and its own label (Claude, Claude 2, and so on), so sessions can work at the same time without touching each other's pages. They share one browser, so they also share logins. The tabs are grouped by session and close when the session ends.
 
-The screen stays on one session rather than flipping between them. Pick which one to watch in the top bar. If several need you, their requests queue, and the screen goes to each in turn.
+The screen stays on one session rather than flipping between them. Pick which one to watch in the top bar, or in Control mode click its tab in Brave: the two always stay in sync. If several sessions need you, their requests queue, and each comes forward in turn.
 
 Isolation is per MCP connection. Subagents that share one connection also share one tab, so give browser work to one subagent at a time.
 
