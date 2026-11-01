@@ -4,7 +4,6 @@
   --page: #fdfcfc; --card: #ffffff; --tray: #f4f2f0; --tray-hover: #ebe8e5; --line: #ece9e6; --selected: #ffffff;
   --ink: #000; --on-ink: #fff; --body: #5f5a55; --quiet: #98928c; --shot: rgba(40,30,20,.08);
   --soft: 0 1px 2px rgba(20,16,12,.06), 0 0 0 1px rgba(20,16,12,.05);
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .55 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 @media (prefers-color-scheme: dark) {
@@ -27,18 +26,20 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 [hidden] { display: none !important; }
 svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 
-/* Orbs: the only colour in the product */
-.orb { --a: #f7f5f3; --b: #dcd8d3; --c: #b9b3ad; --d: #8f8982; position: relative; flex: none; display: block; width: 32px; height: 32px; border-radius: 50%; overflow: hidden; isolation: isolate; background: var(--c); }
-.orb::before { content: ""; position: absolute; inset: -35%; border-radius: 50%;
-  background: radial-gradient(circle at 70% 72%, var(--d) 0%, transparent 34%), radial-gradient(circle at 26% 62%, var(--b) 0%, transparent 42%), radial-gradient(circle at 36% 30%, var(--a) 0%, transparent 46%), var(--c); }
-.orb::after { content: ""; position: absolute; inset: 0; border-radius: 50%; background: var(--grain); background-size: 60px; mix-blend-mode: overlay; opacity: .9; box-shadow: inset -2px -3px 7px rgba(60,20,0,.28); }
-.orb[data-agent="claude"] { --a: #ffe6b8; --b: #ffa04d; --c: #f4692a; --d: #a8320f; }
-.orb[data-agent="hermes"] { --a: #f3dcff; --b: #b18cff; --c: #6d86ff; --d: #2f3fc0; }
-.orb[data-agent="you"] { --a: #eef6ea; --b: #b9dcc0; --c: #79b394; --d: #3d7e60; }
-/* Barely-there drift, so it reads as alive rather than busy. */
-.orb.live::before, .orb.turn::before { animation: drift 40s linear infinite; }
-@keyframes drift { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .orb::before { animation: none !important; } }
+/* Orbs: the only colour in the product. Smooth at any size; soft light drifts inside while an agent works. */
+.orb { --a: #f8f6f4; --b: #dcd8d3; --c: #bdb7b1; --d: #948e87; position: relative; flex: none; display: block; width: 32px; height: 32px; border-radius: 50%; overflow: hidden; isolation: isolate;
+  background: radial-gradient(circle at 38% 32%, var(--b), var(--c) 62%, var(--d) 112%); }
+.orb::before, .orb::after { content: ""; position: absolute; border-radius: 50%; }
+.orb::before { left: 34%; top: 40%; width: 86%; height: 86%; background: radial-gradient(closest-side, var(--d), transparent); opacity: .75; }
+.orb::after { left: -2%; top: -6%; width: 72%; height: 72%; background: radial-gradient(closest-side, var(--a), transparent); }
+.orb[data-agent="claude"] { --a: #ffe9c4; --b: #ffa35a; --c: #f26a2c; --d: #b23412; }
+.orb[data-agent="hermes"] { --a: #f3e2ff; --b: #b596ff; --c: #6d86ff; --d: #2f3fc0; }
+.orb[data-agent="you"] { --a: #f2f8ee; --b: #bfe0c6; --c: #7cb697; --d: #3f8063; }
+.orb.live::before, .orb.turn::before { animation: drift-deep 9s ease-in-out infinite alternate; }
+.orb.live::after, .orb.turn::after { animation: drift-light 7s ease-in-out infinite alternate; }
+@keyframes drift-deep { to { transform: translate(-46%, -38%); } }
+@keyframes drift-light { to { transform: translate(44%, 34%); } }
+@media (prefers-reduced-motion: reduce) { .orb::before, .orb::after { animation: none !important; } }
 .orb.small { width: 20px; height: 20px; }
 .orb.large { width: 64px; height: 64px; margin-bottom: 12px; }
 
