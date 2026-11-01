@@ -29,7 +29,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round
 /* Orbs: the only colour in the product. Smooth at any size; soft light drifts inside while an agent works. */
 .orb { --a: #f8f6f4; --b: #dcd8d3; --c: #bdb7b1; --d: #948e87; position: relative; flex: none; display: block; width: 32px; height: 32px; border-radius: 50%; overflow: hidden; isolation: isolate;
   background: radial-gradient(circle at 38% 32%, var(--b), var(--c) 62%, var(--d) 112%); }
-.orb::before, .orb::after { content: ""; position: absolute; border-radius: 50%; }
+.orb::before, .orb::after { content: ""; position: absolute; border-radius: 50%; filter: blur(2.5px); }
 .orb::before { left: 34%; top: 40%; width: 86%; height: 86%; background: radial-gradient(closest-side, var(--d), transparent); opacity: .75; }
 .orb::after { left: -2%; top: -6%; width: 72%; height: 72%; background: radial-gradient(closest-side, var(--a), transparent); }
 .orb[data-agent="claude"] { --a: #ffe9c4; --b: #ffa35a; --c: #f26a2c; --d: #b23412; }
