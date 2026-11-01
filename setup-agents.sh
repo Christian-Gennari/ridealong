@@ -42,8 +42,12 @@ fi
 
 if command -v gemini >/dev/null; then
   gemini mcp remove --scope user ridealong >/dev/null 2>&1 || true
-  gemini mcp add --scope user ridealong ridealong-mcp -- --agent Gemini >/dev/null
-  echo "Gemini CLI: registered"
+  # A CLI that can't start must not stop the clients after it.
+  if gemini mcp add --scope user ridealong ridealong-mcp -- --agent Gemini >/dev/null 2>&1; then
+    echo "Gemini CLI: registered"
+  else
+    echo "Gemini CLI: skipped, it failed to run. Fix it, then re-run this script."
+  fi
 fi
 
 CONFIG=$HOME/.hermes/config.yaml
