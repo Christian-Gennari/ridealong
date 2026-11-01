@@ -4,6 +4,10 @@
 
 Ridealong runs a real, logged-in Brave browser on your server. Claude Code, Codex, Gemini CLI, Cursor or any other MCP client can drive it. You follow along live from a web viewer, and when an agent hits a 2FA code or a CAPTCHA, it asks you to step in and carries on when you hand back.
 
+[![Claude and Codex plan a trip on Google Flights and Booking.com, then Claude hands over for a human check](docs/images/demo.webp)](docs/demo.mp4)
+
+<sub>Real agent sessions on real sites through Ridealong. The steps are scripted, the check is a public test page, and pauses are cut. [Watch the full-size video](docs/demo.mp4).</sub>
+
 ![Claude reading a real Grafana dashboard in Ridealong, with two more sessions running](docs/images/working.png)
 
 ## Why
@@ -73,6 +77,8 @@ Activity and settings live in the sidebar, in light or dark.
 ## Site rules
 
 Under **Settings**, list the sites where agents must ask first, such as your bank, PayPal or your domain registrar. Agents can still read those sites. When one tries to click or type there, the viewer asks you to allow it for 10 minutes or block it. The check runs in Ridealong's wrapper, not in the agent, so a page can't talk an agent past it, and if the viewer is down the answer is no.
+
+![The viewer asking whether to allow Codex to act on booking.com](docs/images/approval.png)
 
 While any rule is set, `browser_run_code_unsafe` is turned off, because it could reach a protected site and act in one call.
 

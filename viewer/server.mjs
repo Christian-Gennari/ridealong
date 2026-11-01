@@ -360,6 +360,8 @@ const api = {
     if (turn) {
       state.turns = state.turns.filter((t) => t !== turn);
       answered.set(turn.id, Boolean(blocked));
+      const asker = sessions.get(turn.session);
+      if (asker) { asker.text = "Carrying on"; asker.at = Date.now(); }
       log("You", turn.kind !== "approval" ? "Handed back" : `${blocked ? "Blocked" : "Allowed"} ${turn.agent} on ${turn.host}`);
     }
     if (!state.turns.length) pinned = false;
