@@ -7,17 +7,18 @@
 #   sudo ./install.sh --test              also run the crash tests on an upgrade
 #   sudo ./install.sh --uninstall         remove it (keeps the Brave profile)
 #
-# Safe to re-run. Log: /opt/agent-browser/install.log
+# Safe to re-run. Log: /opt/ridealong/install.log
 set -euo pipefail
 
 SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-APP=/opt/agent-browser
+APP=/opt/ridealong
 NODE_VERSION=v24.15.0
 VIEWER_PORT=6086
 HTTPS_PORT=6087
 NETWORK=auto
 RUN_TESTS=no
-SERVICES="agent-display agent-desktop agent-vnc agent-viewer agent-brave"
+SERVICES="ridealong-display ridealong-desktop ridealong-vnc ridealong-viewer ridealong-brave"
+OLD_SERVICES="agent-display agent-desktop agent-vnc agent-novnc agent-viewer agent-brave"
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -33,16 +34,16 @@ done
 [ "$(id -u)" = 0 ] || { echo "Run with sudo: sudo ./install.sh"; exit 1; }
 
 if [ "$NETWORK" = uninstall ]; then
-  for s in $SERVICES agent-novnc; do
+  for s in $SERVICES; do
     systemctl disable --now "$s" 2>/dev/null || true
     rm -f "/etc/systemd/system/$s.service"
   done
   systemctl daemon-reload
-  systemctl reset-failed 'agent-*' 2>/dev/null || true
+  systemctl reset-failed 'ridealong-*' 2>/dev/null || true
   [ -f "$APP/config.env" ] && . "$APP/config.env"
   [ "${NETWORK_MODE:-}" = tailscale ] && tailscale serve --https="$HTTPS_PORT" off || true
-  rm -rf "$APP" /usr/local/bin/agent-browser-status /usr/local/bin/agent-brave-prestart
-  echo "Removed. Your Brave profile is still in ~/.agent-brave, and agents still list the playwright MCP server."
+  rm -rf "$APP" /usr/local/bin/ridealong-status /usr/local/bin/ridealong-prestart /usr/local/bin/ridealong-mcp
+  echo "Removed. Your Brave profile is still in ~/.ridealong-browser, and your agents still list the ridealong MCP server."
   exit 0
 fi
 
@@ -57,7 +58,7 @@ case "$(uname -m)" in
 esac
 
 FIRST_INSTALL=no
-systemctl is-active -q agent-display 2>/dev/null || FIRST_INSTALL=yes
+systemctl is-active -q ridealong-display 2>/dev/null || FIRST_INSTALL=yes
 [ "$FIRST_INSTALL" = yes ] && RUN_TESTS=yes
 
 mkdir -p "$APP"
@@ -79,6 +80,19 @@ for dm in gdm3 lightdm sddm; do
   dpkg -s "$dm" >/dev/null 2>&1 && { echo "A display manager ($dm) is installed. Remove it first."; exit 1; }
 done
 
+echo "=== migrating earlier installs"
+# Older versions used these names. Move the profile so logins survive.
+for s in $OLD_SERVICES; do
+  systemctl disable --now "$s" 2>/dev/null || true
+  rm -f "/etc/systemd/system/$s.service"
+done
+systemctl daemon-reload
+systemctl reset-failed 'agent-*' 2>/dev/null || true
+rm -rf /opt/agent-browser /usr/local/bin/agent-browser-status /usr/local/bin/agent-brave-prestart
+if [ -d "$H/.agent-brave" ] && [ ! -e "$H/.ridealong-browser" ]; then
+  mv "$H/.agent-brave" "$H/.ridealong-browser"
+fi
+
 echo "=== Node $NODE_VERSION"
 # Private to this app, so nothing depends on the system Node or on nvm.
 if [ "$("$APP/node/bin/node" -v 2>/dev/null)" != "$NODE_VERSION" ]; then
@@ -94,9 +108,9 @@ if [ "$("$APP/node/bin/node" -v 2>/dev/null)" != "$NODE_VERSION" ]; then
 fi
 
 echo "=== app files"
-rm -rf "$APP/agent-cursor" "$APP/mcp" "$APP/docs" "$APP/scripts" "$APP/viewer/public"
+rm -rf "$APP/ridealong-cursor" "$APP/mcp" "$APP/docs" "$APP/scripts" "$APP/viewer/public"
 mkdir -p "$APP/viewer"
-cp -r "$SRC/agent-cursor" "$SRC/mcp" "$SRC/docs" "$SRC/scripts" "$APP/"
+cp -r "$SRC/ridealong-cursor" "$SRC/mcp" "$SRC/docs" "$SRC/scripts" "$APP/"
 cp -r "$SRC/viewer/public" "$SRC/viewer/server.mjs" "$SRC/viewer/package.json" "$SRC/viewer/package-lock.json" "$APP/viewer/"
 cp "$SRC/setup-agents.sh" "$APP/"
 chmod +x "$APP/setup-agents.sh" "$APP/scripts/"*
@@ -133,7 +147,7 @@ case "$NETWORK" in
 esac
 
 cat > "$APP/config.env" <<CONF
-AGENT_USER=$U
+RIDEALONG_USER=$U
 NETWORK_MODE=$NETWORK
 VIEWER_HOST=$VIEWER_HOST
 VIEWER_PORT=$VIEWER_PORT
@@ -158,7 +172,7 @@ set -euo pipefail
 X=$HOME/.config/xfce4/xfconf/xfce-perchannel-xml
 A=$HOME/.config/autostart
 mkdir -p "$X" "$A"
-install -d -m 700 "$HOME/.agent-brave"
+install -d -m 700 "$HOME/.ridealong-browser"
 
 for app in light-locker xfce4-screensaver xfce4-power-manager; do
   printf '[Desktop Entry]\nType=Application\nName=%s\nHidden=true\n' "$app" > "$A/$app.desktop"
@@ -209,24 +223,22 @@ XML
 EOS
 
 echo "=== helper scripts"
-install -m 755 "$SRC/bin/agent-brave-prestart" /usr/local/bin/agent-brave-prestart
-sed "s|@VIEWER_URL@|$VIEWER_URL|" "$SRC/bin/agent-browser-status" > /usr/local/bin/agent-browser-status
-chmod 755 /usr/local/bin/agent-browser-status
+install -m 755 "$SRC/bin/ridealong-prestart" /usr/local/bin/ridealong-prestart
+install -m 755 "$SRC/bin/ridealong-mcp" /usr/local/bin/ridealong-mcp
+sed "s|@VIEWER_URL@|$VIEWER_URL|" "$SRC/bin/ridealong-status" > /usr/local/bin/ridealong-status
+chmod 755 /usr/local/bin/ridealong-status
 
 echo "=== systemd units"
-# Replaced by agent-viewer.
-systemctl disable --now agent-novnc 2>/dev/null || true
-rm -f /etc/systemd/system/agent-novnc.service
-if ss -tlnH "sport = :$VIEWER_PORT" | grep -q . && ! systemctl is-active -q agent-viewer; then
+if ss -tlnH "sport = :$VIEWER_PORT" | grep -q . && ! systemctl is-active -q ridealong-viewer; then
   echo "Port $VIEWER_PORT is in use. Pick another with --port."; exit 1
 fi
 
-# WantedBy=agent-display.service on the dependents: a service stopped through
+# WantedBy=ridealong-display.service on the dependents: a service stopped through
 # BindsTo is not revived by its own Restart=, so without it a real Xvfb crash
 # (not a manual restart) would leave them stopped.
 unit() { cat > "/etc/systemd/system/$1.service"; }
 
-unit agent-display <<UNIT
+unit ridealong-display <<UNIT
 [Unit]
 Description=Ridealong: Xvfb display :99
 StartLimitIntervalSec=0
@@ -246,11 +258,11 @@ RestartSec=3
 WantedBy=multi-user.target
 UNIT
 
-unit agent-desktop <<UNIT
+unit ridealong-desktop <<UNIT
 [Unit]
 Description=Ridealong: XFCE session on :99
-BindsTo=agent-display.service
-After=agent-display.service
+BindsTo=ridealong-display.service
+After=ridealong-display.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -266,14 +278,14 @@ Restart=always
 RestartSec=3
 
 [Install]
-WantedBy=multi-user.target agent-display.service
+WantedBy=multi-user.target ridealong-display.service
 UNIT
 
-unit agent-vnc <<UNIT
+unit ridealong-vnc <<UNIT
 [Unit]
 Description=Ridealong: x11vnc on 127.0.0.1:5900
-BindsTo=agent-display.service
-After=agent-display.service
+BindsTo=ridealong-display.service
+After=ridealong-display.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -287,11 +299,11 @@ Restart=always
 RestartSec=3
 
 [Install]
-WantedBy=multi-user.target agent-display.service
+WantedBy=multi-user.target ridealong-display.service
 UNIT
 
 # Not bound to the display: it reconnects on its own and keeps who-has-control.
-unit agent-viewer <<UNIT
+unit ridealong-viewer <<UNIT
 [Unit]
 Description=Ridealong: viewer and control service
 After=network.target
@@ -312,11 +324,11 @@ RestartSec=3
 WantedBy=multi-user.target
 UNIT
 
-unit agent-brave <<UNIT
+unit ridealong-brave <<UNIT
 [Unit]
 Description=Ridealong: Brave with CDP on 127.0.0.1:9222
-BindsTo=agent-display.service
-After=agent-display.service agent-desktop.service
+BindsTo=ridealong-display.service
+After=ridealong-display.service ridealong-desktop.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -325,18 +337,18 @@ User=$U
 Group=$U
 Environment=DISPLAY=:99
 Environment=HOME=$H
-ExecStartPre=/usr/local/bin/agent-brave-prestart
-ExecStart=/usr/bin/brave-browser --user-data-dir=$H/.agent-brave --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --password-store=basic --no-first-run --no-default-browser-check --start-maximized --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --load-extension=$APP/agent-cursor ${BRAVE_FLAGS:-}
+ExecStartPre=/usr/local/bin/ridealong-prestart
+ExecStart=/usr/bin/brave-browser --user-data-dir=$H/.ridealong-browser --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 --password-store=basic --no-first-run --no-default-browser-check --start-maximized --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows --load-extension=$APP/ridealong-cursor ${BRAVE_FLAGS:-}
 Restart=always
 RestartSec=3
 
 [Install]
-WantedBy=multi-user.target agent-display.service
+WantedBy=multi-user.target ridealong-display.service
 UNIT
 
 systemctl daemon-reload
 systemctl enable $SERVICES
-systemctl restart agent-display agent-viewer
+systemctl restart ridealong-display ridealong-viewer
 systemctl start $SERVICES
 
 if [ "$NETWORK" = tailscale ]; then
@@ -350,7 +362,7 @@ fi
 echo "=== agents"
 sudo -u "$U" -H "$APP/setup-agents.sh" || echo "WARNING: agent setup failed; re-run $APP/setup-agents.sh"
 
-status() { sudo -u "$U" /usr/local/bin/agent-browser-status; }
+status() { sudo -u "$U" /usr/local/bin/ridealong-status; }
 wait_cdp() {
   for _ in $(seq 60); do
     curl -fsS -m 2 http://127.0.0.1:9222/json/version >/dev/null 2>&1 && return 0
@@ -363,15 +375,15 @@ FAILED=no
 wait_cdp || FAILED=yes
 if [ "$RUN_TESTS" = yes ]; then
   mkdir -p "$APP/shots"
-  shot() { cp /tmp/agent-display.png "$APP/shots/$1.png" 2>/dev/null || true; }
+  shot() { cp /tmp/ridealong-display.png "$APP/shots/$1.png" 2>/dev/null || true; }
   check() {
     echo "--- $1"; sleep 10; wait_cdp || FAILED=yes; sleep 6; status; shot "$1"
     for s in $SERVICES; do systemctl is-active -q "$s" || { echo "$s is DOWN"; FAILED=yes; }; done
   }
   echo "=== tests"
   check first-start
-  systemctl restart agent-display; check display-restart
-  kill -9 "$(systemctl show -p MainPID --value agent-display)"; check xvfb-crash
+  systemctl restart ridealong-display; check display-restart
+  kill -9 "$(systemctl show -p MainPID --value ridealong-display)"; check xvfb-crash
   pkill -9 brave || true; check brave-kill
   curl -fsS -o /dev/null -m 5 "http://127.0.0.1:$VIEWER_PORT/" || { echo "Viewer not answering"; FAILED=yes; }
 fi
@@ -401,6 +413,7 @@ esac
 cat <<DONE
 
   Next: in the viewer choose Control, sign into your accounts in Brave, then go back to Auto.
-  Check it any time with: agent-browser-status
+  Connect any other MCP client by pointing it at the command: ridealong-mcp
+  Check it any time with: ridealong-status
 DONE
 [ "$FAILED" = no ]

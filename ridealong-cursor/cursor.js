@@ -1,5 +1,5 @@
 // Agent Cursor. Playwright sends input straight to the page and never moves the
-// X11 pointer, so the page's mouse events and messages from agent-browser-mcp
+// X11 pointer, so the page's mouse events and messages from ridealong-mcp
 // are the only signs of what an agent is doing. Frames forward both up; the top
 // frame draws everything. Pages can post the same messages, but all that can
 // change is what this overlay shows.
@@ -8,7 +8,7 @@
 
   const send = (msg) => {
     if (isTop) handle(msg);
-    else window.parent.postMessage({ agentCursor: 1, ...msg }, "*");
+    else window.parent.postMessage({ ridealongFrame: 1, ...msg }, "*");
   };
 
   const mouse = (kind) => (e) => send({ kind, x: e.clientX, y: e.clientY });
@@ -18,15 +18,15 @@
 
   window.addEventListener("message", (e) => {
     const d = e.data;
-    if (d?.agentBrowser) {
-      const { agentBrowser, ...msg } = d;
+    if (d?.ridealong) {
+      const { ridealong, ...msg } = d;
       send({ kind: msg.cmd, ...msg });
-    } else if (d?.agentCursor) {
+    } else if (d?.ridealongFrame) {
       const frame = [...document.querySelectorAll("iframe, frame")]
         .find((f) => f.contentWindow === e.source);
       if (!frame) return;
       const r = frame.getBoundingClientRect();
-      const { agentCursor, ...msg } = d;
+      const { ridealongFrame, ...msg } = d;
       if (typeof msg.x === "number") { msg.x += r.left; msg.y += r.top; }
       if (typeof msg.left === "number") { msg.left += r.left; msg.top += r.top; }
       send(msg);

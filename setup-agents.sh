@@ -1,23 +1,15 @@
 #!/usr/bin/env bash
-# Points Claude Code and Hermes at the wrapper. The installer runs this as the
-# agent user; run it yourself after installing either of them later.
+# Registers Ridealong with the MCP clients it finds. The installer runs this as
+# the agent user; run it yourself after installing one of them later.
 set -euo pipefail
-APP=/opt/agent-browser
+APP=/opt/ridealong
 . "$APP/config.env"
 PATH=$HOME/.local/bin:$PATH
-WRAPPER=$APP/mcp/agent-browser-mcp.mjs
-OUT=$HOME/.cache/playwright-mcp
-NODE_BIN=$APP/node/bin
-MCP_PATH=$NODE_BIN:/usr/local/bin:/usr/bin:/bin
-VIEWER=http://127.0.0.1:$VIEWER_PORT
-mkdir -p -m 700 "$OUT"
 
 if command -v claude >/dev/null; then
   claude mcp remove playwright --scope user >/dev/null 2>&1 || true
-  claude mcp add playwright --scope user \
-    -e "PATH=$MCP_PATH" -e "AGENT_BROWSER_VIEWER=$VIEWER" -e "VIEWER_TOKEN=${VIEWER_TOKEN:-}" -- \
-    "$NODE_BIN/node" "$WRAPPER" --agent Claude -- \
-    "$NODE_BIN/npx" -y @playwright/mcp@latest --cdp-endpoint http://127.0.0.1:9222 --output-dir "$OUT"
+  claude mcp remove ridealong --scope user >/dev/null 2>&1 || true
+  claude mcp add ridealong --scope user -- ridealong-mcp --agent Claude
   echo "Claude Code: registered"
 
   # Tell future sessions how to use the browser. Replaces our block on re-runs.
@@ -25,13 +17,14 @@ if command -v claude >/dev/null; then
   python3 - "$HOME/.claude/CLAUDE.md" "$APP/docs/agent-instructions.md" "$VIEWER_URL" <<'PY'
 import re, sys
 path, source, url = sys.argv[1:]
-start, end = "<!-- agent-browser -->", "<!-- /agent-browser -->"
+start, end = "<!-- ridealong -->", "<!-- /ridealong -->"
 body = open(source).read().replace("@VIEWER_URL@", url).strip()
 block = f"{start}\n{body}\n{end}\n"
 try:
     text = open(path).read()
 except FileNotFoundError:
     text = ""
+text = re.sub(r"<!-- agent-browser -->.*?<!-- /agent-browser -->\n?", "", text, flags=re.S)
 pattern = re.compile(re.escape(start) + r".*?" + re.escape(end) + r"\n?", re.S)
 if pattern.search(text):
     text = pattern.sub(block, text)
@@ -41,37 +34,34 @@ open(path, "w").write(text)
 PY
 fi
 
+if command -v codex >/dev/null; then
+  codex mcp remove ridealong >/dev/null 2>&1 || true
+  codex mcp add ridealong -- ridealong-mcp --agent Codex
+  echo "Codex: registered"
+fi
+
+if command -v gemini >/dev/null; then
+  gemini mcp remove --scope user ridealong >/dev/null 2>&1 || true
+  gemini mcp add --scope user ridealong ridealong-mcp -- --agent Gemini >/dev/null
+  echo "Gemini CLI: registered"
+fi
+
 CONFIG=$HOME/.hermes/config.yaml
 if [ -f "$CONFIG" ]; then
-  cp "$CONFIG" "$CONFIG.bak-agent-browser"
-  python3 - "$CONFIG" "$NODE_BIN" "$WRAPPER" "$OUT" "$MCP_PATH" "$VIEWER" "${VIEWER_TOKEN:-}" <<'PY'
+  cp "$CONFIG" "$CONFIG.bak-ridealong"
+  python3 - "$CONFIG" <<'PY'
 import re, sys
-path, node, wrapper, out, mcp_path, viewer, token = sys.argv[1:]
-block = f"""  playwright:
-    command: {node}/node
+path = sys.argv[1]
+block = """  ridealong:
+    command: /usr/local/bin/ridealong-mcp
     args:
-      - {wrapper}
       - --agent
       - Hermes
-      - --
-      - {node}/npx
-      - -y
-      - '@playwright/mcp@latest'
-      - --cdp-endpoint
-      - http://127.0.0.1:9222
-      - --output-dir
-      - {out}
-    env:
-      PATH: {mcp_path}
-      AGENT_BROWSER_VIEWER: {viewer}
-      VIEWER_TOKEN: '{token}'
     timeout: 660
 """
 s = open(path).read()
-existing = re.compile(r"^  playwright:\n(?:^(?:    .*|)\n)*", re.M)
-if existing.search(s):
-    s = existing.sub(block, s, count=1)
-elif re.search(r"^mcp_servers:\n", s, re.M):
+s = re.sub(r"^  (playwright|ridealong):\n(?:^(?:    .*|)\n)*", "", s, flags=re.M)
+if re.search(r"^mcp_servers:\n", s, re.M):
     s = re.sub(r"^mcp_servers:\n", "mcp_servers:\n" + block, s, count=1, flags=re.M)
 else:
     s = s.rstrip() + "\nmcp_servers:\n" + block

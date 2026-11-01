@@ -3,7 +3,7 @@ import RFB from "/vendor/novnc/core/rfb.js";
 import KeyTable from "/vendor/novnc/core/input/keysym.js";
 
 const $ = (id) => document.getElementById(id);
-const SETTINGS_KEY = "agent-browser-settings";
+const SETTINGS_KEY = "ridealong-settings";
 const DEFAULTS = { fit: true, dotCursor: true, quality: 6, compression: 2, panel: false, tab: "activity", appearance: "system" };
 const PRESETS = {
   sharp: { quality: 8, compression: 2 },

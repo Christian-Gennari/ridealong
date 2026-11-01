@@ -1,8 +1,8 @@
 <h1><img src="docs/images/mark.svg" width="28" alt=""> Ridealong</h1>
 
-**A self-hosted browser for AI agents. Ride along, and take the wheel when you need to.**
+**A real browser for any AI agent. Plug it into anything that speaks MCP, ride along, and take the wheel when you need to.**
 
-Ridealong runs a real, logged-in Brave browser on your server. Agents like Claude Code and Hermes use it through the Playwright MCP tools. You follow along live from a web viewer, and when an agent hits a 2FA code or a CAPTCHA, it asks you to step in and carries on when you hand back.
+Ridealong runs a real, logged-in Brave browser on your server. Claude Code, Codex, Gemini CLI, Cursor or any other MCP client can drive it. You follow along live from a web viewer, and when an agent hits a 2FA code or a CAPTCHA, it asks you to step in and carries on when you hand back.
 
 ![Ridealong showing an agent working in a browser](docs/images/working.png)
 
@@ -14,21 +14,22 @@ Agents get stuck wherever there's no API: dashboards, admin panels, anything beh
 - **Live viewer:** see the agent's cursor and what it's doing, from any device.
 - **Human handover:** the agent asks, you step in, you hand back. It waits for you and resumes on its own.
 - **Safe by default:** the viewer is locked while agents work, and agents pause when you take control.
-- **Any MCP client:** set up automatically for Claude Code and Hermes, and easy to add elsewhere.
+- **Plug and play:** one command connects any MCP client. There are no providers or plugins to add, and any model works.
+- **Parallel agents:** every session gets its own tab, so they can work at the same time.
 
 ## Install
 
 Tested on Ubuntu 24.04 (x86-64). Debian and arm64 should work but haven't been tested.
 
 ```
-git clone https://github.com/Christian-Gennari/self-hosted-agent-browser
-cd self-hosted-agent-browser
+git clone https://github.com/Christian-Gennari/ridealong
+cd ridealong
 sudo ./install.sh
 ```
 
 It takes about 3 minutes and prints your viewer link. Then open the viewer, choose **Control**, sign into your accounts in Brave, and go back to **Auto**.
 
-To upgrade, `git pull` and run it again. To remove it, run `sudo ./install.sh --uninstall`; your Brave profile stays in `~/.agent-brave`.
+To upgrade, `git pull` and run it again. To remove it, run `sudo ./install.sh --uninstall`; your Brave profile stays in `~/.ridealong-browser`.
 
 ## Using it
 
@@ -69,45 +70,51 @@ The viewer controls a logged-in browser, so it stays on `127.0.0.1` unless you c
 
 Never expose the viewer to the internet without a login in front of it.
 
-## Other MCP clients
+## Connect any MCP client
 
-Claude Code and Hermes are configured by the installer, which also adds usage notes to `~/.claude/CLAUDE.md`. For anything else, add this server:
+Ridealong is a standard MCP server, so it's plug and play: if a tool can run a local MCP server, it works, whichever model is behind it. Everything points at one command, `ridealong-mcp`.
+
+The installer connects Claude Code, Codex, Gemini CLI and Hermes if it finds them. For anything else:
+
+```bash
+claude mcp add ridealong -- ridealong-mcp --agent Claude      # Claude Code
+codex mcp add ridealong -- ridealong-mcp --agent Codex        # Codex
+gemini mcp add ridealong ridealong-mcp -- --agent Gemini      # Gemini CLI
+```
+
+Tools configured with JSON, like Cursor and Claude Desktop, use this:
 
 ```json
 {
   "mcpServers": {
-    "playwright": {
-      "command": "/opt/agent-browser/node/bin/node",
-      "args": [
-        "/opt/agent-browser/mcp/agent-browser-mcp.mjs", "--agent", "MyAgent", "--",
-        "/opt/agent-browser/node/bin/npx", "-y", "@playwright/mcp@latest",
-        "--cdp-endpoint", "http://127.0.0.1:9222"
-      ],
-      "env": { "PATH": "/opt/agent-browser/node/bin:/usr/local/bin:/usr/bin:/bin" }
-    }
+    "ridealong": { "command": "ridealong-mcp", "args": ["--agent", "Cursor"] }
   }
 }
 ```
+
+`--agent` is the name you'll see in the viewer. Clients receive the usage rules when they connect, so no extra setup is needed.
+
+The ChatGPT web and desktop apps can't use it: they only connect to remote MCP servers, and this one shouldn't be exposed to the internet. Use Codex instead.
 
 ## How it works
 
 | Service | What it does |
 |---|---|
-| `agent-display` | Xvfb virtual display |
-| `agent-desktop` | Lightweight XFCE session |
-| `agent-brave` | Brave, with remote debugging on `127.0.0.1:9222` |
-| `agent-vnc` | x11vnc on `127.0.0.1:5900` |
-| `agent-viewer` | The web UI, the VNC relay and who-has-control |
+| `ridealong-display` | Xvfb virtual display |
+| `ridealong-desktop` | Lightweight XFCE session |
+| `ridealong-brave` | Brave, with remote debugging on `127.0.0.1:9222` |
+| `ridealong-vnc` | x11vnc on `127.0.0.1:5900` |
+| `ridealong-viewer` | The web UI, the VNC relay and who-has-control |
 
-A small MCP wrapper sits in front of `@playwright/mcp`. It tells the viewer and a browser extension what's happening, adds a short pause before each click so you can follow it, holds tools while you have control, and adds the `browser_handover` tool. If the viewer is down, agents keep working. Set `AGENT_BROWSER_PLAIN=1` to bypass the wrapper entirely.
+`ridealong-mcp` is a small wrapper in front of `@playwright/mcp`. It tells the viewer and a browser extension what's happening, adds a short pause before each click so you can follow it, holds tools while you have control, and adds the `browser_handover` tool. If the viewer is down, agents keep working. Set `RIDEALONG_PLAIN=1` to bypass the wrapper entirely.
 
-Check on it with `agent-browser-status`, and read logs with `journalctl -u agent-brave -f`.
+Check on it with `ridealong-status`, and read logs with `journalctl -u ridealong-brave -f`.
 
 ## Security
 
 Treat Ridealong as giving your agents your logged-in browser, and sign in only where you'd accept that.
 
-- **Saved passwords are stored unencrypted** in `~/.agent-brave`, because there's nobody at boot to unlock a keyring. Any process running as your user can read them and can drive the browser. Keep payment and other high-value accounts out of this profile.
+- **Saved passwords are stored unencrypted** in `~/.ridealong-browser`, because there's nobody at boot to unlock a keyring. Any process running as your user can read them and can drive the browser. Keep payment and other high-value accounts out of this profile.
 - **The viewer has no login of its own,** except the secret link in LAN mode. The lock protects against accidents, not people.
 - **Other websites can't reach it:** the viewer refuses connections from other origins.
 - Agents read untrusted pages, so prompt injection is a real risk. The installed instructions tell them to treat page text as data, which reduces the risk but doesn't remove it.

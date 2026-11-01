@@ -1,6 +1,6 @@
 // The viewer service: serves the UI, relays VNC over a WebSocket, and holds the
 // shared state (what the agent is doing, who has control). Agents reach it
-// through mcp/agent-browser-mcp.mjs and keep working if it is down.
+// through mcp/ridealong-mcp.mjs and keep working if it is down.
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -98,9 +98,9 @@ const sameOrigin = (req) => {
 
 const authorised = (req, url) => {
   if (!TOKEN) return true;
-  return cookies(req).agent_browser === TOKEN
+  return cookies(req).ridealong === TOKEN
     || url.searchParams.get("token") === TOKEN
-    || req.headers["x-agent-browser-token"] === TOKEN;
+    || req.headers["x-ridealong-token"] === TOKEN;
 };
 
 const json = (res, status, body) => {
@@ -226,7 +226,7 @@ const server = http.createServer(async (req, res) => {
     return res.end("Open the link the installer printed, including its token.");
   }
   if (TOKEN && url.searchParams.get("token") === TOKEN) {
-    res.setHeader("Set-Cookie", `agent_browser=${TOKEN}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
+    res.setHeader("Set-Cookie", `ridealong=${TOKEN}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
   }
   if (req.method === "POST" && !sameOrigin(req)) return json(res, 403, { error: "origin" });
   const route = api[`${req.method} ${url.pathname}`];

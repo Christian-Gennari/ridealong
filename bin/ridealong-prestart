@@ -1,7 +1,7 @@
 #!/bin/bash
 # Runs before every Brave start: waits for the window manager so
 # --start-maximized works, and clears what a hard kill leaves behind.
-PROFILE=$HOME/.agent-brave
+PROFILE=$HOME/.ridealong-browser
 for _ in $(seq 100); do pgrep -u "$(id -un)" -x xfwm4 >/dev/null && break; sleep 0.2; done
 # systemd has already killed the whole cgroup, so any lock here is stale.
 rm -f "$PROFILE"/SingletonLock "$PROFILE"/SingletonSocket "$PROFILE"/SingletonCookie
@@ -19,11 +19,11 @@ def edit(path, change):
         except FileNotFoundError:
             data = {}
         change(data)
-        with open(path + ".agent-tmp", "w") as f:
+        with open(path + ".ridealong-tmp", "w") as f:
             json.dump(data, f)
-        os.replace(path + ".agent-tmp", path)
+        os.replace(path + ".ridealong-tmp", path)
     except Exception as e:
-        print(f"agent-brave-prestart: {e}", file=sys.stderr)
+        print(f"ridealong-prestart: {e}", file=sys.stderr)
 
 def clean_exit(prefs):
     profile = prefs.setdefault("profile", {})
