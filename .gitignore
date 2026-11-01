@@ -1,0 +1,4 @@
+config.env
+install.log
+shots/
+node_modules/

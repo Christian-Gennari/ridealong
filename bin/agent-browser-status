@@ -1,0 +1,16 @@
+#!/bin/bash
+# State of the agent browser stack, plus a screenshot of the display.
+for s in agent-display agent-desktop agent-vnc agent-viewer agent-brave; do
+  printf '%-16s %s\n' "$s" "$(systemctl is-active "$s")"
+done
+if v=$(curl -fsS -m 5 http://127.0.0.1:9222/json/version); then
+  echo "CDP 9222:        OK ($(printf '%s' "$v" | python3 -c 'import json,sys; print(json.load(sys.stdin)["Browser"])'))"
+else
+  echo "CDP 9222:        NOT ANSWERING"
+fi
+echo "Viewer:          @VIEWER_URL@"
+if DISPLAY=:99 import -window root -display :99 /tmp/agent-display.png; then
+  echo "Screenshot:      /tmp/agent-display.png"
+else
+  echo "Screenshot:      FAILED"
+fi

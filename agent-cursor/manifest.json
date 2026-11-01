@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Ridealong Cursor",
+  "version": "3.0.0",
+  "description": "Shows an AI agent's cursor and current action in this browser.",
+  "permissions": ["storage", "tabs", "tabGroups"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["cursor.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ]
+}

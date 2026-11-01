@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Ridealong</title>
+  <script src="/theme.js"></script>
+  <link rel="preload" href="/fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none' stroke='%23000' stroke-width='3'%3E%3Ccircle cx='11.5' cy='16' r='8.5'/%3E%3Ccircle cx='20.5' cy='16' r='8.5'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand" aria-label="Ridealong">
+      <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><circle cx="11.5" cy="16" r="8.5"/><circle cx="20.5" cy="16" r="8.5"/></svg>
+      <span class="wordmark">Ridealong</span>
+    </div>
+    <div class="status">
+      <span class="orb" id="avatar"></span>
+      <span class="who" id="who">Connecting</span>
+      <span class="what" id="what"></span>
+    </div>
+    <div class="riders" id="riders" hidden></div>
+    <div class="actions">
+      <button class="primary" id="done" hidden>Hand back <svg viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+      <div class="segments modes" role="radiogroup" aria-label="Who controls the browser">
+        <button role="radio" data-mode="auto" title="Locked while agents work. Unlocks when one asks for you.">Auto</button>
+        <button role="radio" data-mode="watch" title="Always locked. Just watch.">Watch</button>
+        <button role="radio" data-mode="control" title="You use the browser. Agents wait until you release it.">Control</button>
+      </div>
+      <button class="icon" id="fullscreen" title="Fullscreen" aria-label="Fullscreen">
+        <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+      </button>
+      <button class="icon" id="toggle-panel" title="Activity and settings" aria-label="Activity and settings" aria-expanded="false">
+        <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M15 4v16"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <main>
+      <div id="screen"></div>
+      <div class="notice" id="notice">Connecting</div>
+      <div class="takeover" id="takeover" hidden><span id="takeover-text"></span><button id="take-control">Take control</button></div>
+    </main>
+
+    <aside class="panel" id="panel" hidden>
+      <div class="panel-head"><div class="tabs segments" role="tablist">
+        <button role="tab" data-tab="activity" aria-selected="true">Activity</button>
+        <button role="tab" data-tab="settings" aria-selected="false">Settings</button>
+        </div>
+        <button class="icon small" id="close-panel" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+
+      <div class="pane" id="pane-activity">
+        <ol id="activity"></ol>
+        <div class="empty" id="activity-empty">
+          <span class="orb large"></span>
+          <strong>Nothing yet</strong>
+          <span>What your agents do will show up here.</span>
+        </div>
+      </div>
+
+      <div class="pane" id="pane-settings" hidden>
+        <section>
+          <h3>Picture</h3>
+          <div class="field">
+            <span>Appearance</span>
+            <div class="segments compact" id="appearance">
+              <button data-appearance="system">Auto</button>
+              <button data-appearance="light">Light</button>
+              <button data-appearance="dark">Dark</button>
+            </div>
+          </div>
+          <div class="field">
+            <span>Image</span>
+            <div class="segments compact" id="presets">
+              <button data-preset="sharp">Sharp</button>
+              <button data-preset="balanced">Balanced</button>
+              <button data-preset="fast">Fast</button>
+            </div>
+          </div>
+          <label class="field">Fit to window <input type="checkbox" class="switch" id="fit"></label>
+          <label class="field">Show my cursor <input type="checkbox" class="switch" id="dot-cursor"></label>
+        </section>
+
+        <section>
+          <h3>Clipboard</h3>
+          <textarea id="clipboard" rows="2" placeholder="Copied text appears here. Type or paste to send it to the browser."></textarea>
+          <div class="send-row">
+            <button class="ghost needs-control" id="send-clipboard">Send to browser</button>
+            <p class="hint control-hint">Needs Control mode</p>
+          </div>
+        </section>
+
+        <details>
+          <summary>Advanced</summary>
+          <div class="advanced">
+            <div class="group-keys">
+              <span class="label">Send a key</span>
+              <div class="keys">
+                <button class="ghost needs-control" data-key="esc">Esc</button>
+                <button class="ghost needs-control" data-key="tab">Tab</button>
+                <button class="ghost needs-control" data-key="ctrl-alt-del">Ctrl+Alt+Del</button>
+              </div>
+              <p class="hint control-hint">Needs Control mode</p>
+            </div>
+            <label class="slider"><span>Quality <output id="quality-out"></output></span>
+              <input type="range" id="quality" min="0" max="9" step="1"></label>
+            <label class="slider"><span>Compression <output id="compression-out"></output></span>
+              <input type="range" id="compression" min="0" max="9" step="1"></label>
+          </div>
+        </details>
+      </div>
+
+      <footer class="foot">
+        <span class="dot" id="connection-dot"></span>
+        <span id="connection">Connecting</span>
+        <span class="size" id="size"></span>
+        <button class="link" id="reconnect">Reconnect</button>
+      </footer>
+    </aside>
+  </div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
