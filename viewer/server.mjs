@@ -34,6 +34,7 @@ const AGENT_START_MS = 20000; // a session's first tab can take this long to con
 const expectAgentTab = (ms = AGENT_TAB_MS) => { agentTabsUntil = Date.now() + ms; };
 
 const ACTIVE_MS = 30000;
+const SESSION_LOST_MS = 35000; // no heartbeat for this long means the agent died
 const active = () => [...sessions.values()].filter((x) => x.text && Date.now() - x.at < ACTIVE_MS);
 
 // One session owns the screen at a time, so parallel agents don't flip tabs.
@@ -60,6 +61,24 @@ const activateTab = () => {
   activated = target;
   fetch(`http://127.0.0.1:${CDP_PORT}/json/activate/${target}`, { signal: AbortSignal.timeout(1000) }).catch(() => {});
 };
+
+// An agent that was killed can't say goodbye, so sessions must keep checking in.
+const closeTab = (target) => {
+  if (!target) return;
+  fetch(`http://127.0.0.1:${CDP_PORT}/json/close/${target}`, { signal: AbortSignal.timeout(1000) }).catch(() => {});
+};
+const dropSession = (id, { closeItsTab = false } = {}) => {
+  const session = sessions.get(id);
+  if (!session) return;
+  if (closeItsTab) closeTab(session.target);
+  sessions.delete(id);
+  state.turns = state.turns.filter((t) => t.session !== id);
+};
+setInterval(() => {
+  const lost = [...sessions.values()].filter((x) => Date.now() - x.seen > SESSION_LOST_MS);
+  lost.forEach((x) => dropSession(x.id, { closeItsTab: true }));
+  if (lost.length) publish();
+}, 5000).unref();
 
 const canAct = () => state.mode !== "control";
 const locked = () => state.mode === "watch" || (state.mode === "auto" && !state.turns.length);
@@ -162,7 +181,7 @@ const api = {
     const taken = new Set([...sessions.values()].map((x) => x.label));
     let n = 1;
     while (taken.has(n === 1 ? base : `${base} ${n}`)) n += 1;
-    const session = { id: String(++nextSession), label: n === 1 ? base : `${base} ${n}`, text: "", at: 0 };
+    const session = { id: String(++nextSession), label: n === 1 ? base : `${base} ${n}`, text: "", at: 0, seen: Date.now() };
     sessions.set(session.id, session);
     expectAgentTab(AGENT_START_MS);
     json(res, 200, { id: session.id, label: session.label });
@@ -186,10 +205,14 @@ const api = {
   },
   "POST /api/session/end": async (req, res) => {
     const { id } = await readBody(req);
-    sessions.delete(id);
-    state.turns = state.turns.filter((t) => t.session !== id);
+    dropSession(id);
     publish();
     json(res, 200, {});
+  },
+  "POST /api/session/beat": async (req, res) => {
+    const current = sessions.get((await readBody(req)).id);
+    if (current) current.seen = Date.now();
+    json(res, current ? 200 : 404, {});
   },
   "POST /api/activity": async (req, res) => {
     const { session, text, quiet } = await readBody(req);

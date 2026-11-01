@@ -93,7 +93,12 @@ let session = null;
 let sessionId = null;
 let label = AGENT;
 const register = () => (session ??= viewer("/api/session", { body: { agent: AGENT } })
-  .then((r) => { label = r.label; sessionId = r.id; return r.id; })
+  .then((r) => {
+    label = r.label;
+    sessionId = r.id;
+    setInterval(() => viewer("/api/session/beat", { body: { id: r.id } }).catch(() => {}), 10000).unref();
+    return r.id;
+  })
   .catch(() => null));
 
 // Tells the viewer which tab is ours, so it can bring it forward instantly.
@@ -240,6 +245,22 @@ const handover = async (msg, { reason }) => {
   reply(msg, `Nobody handed control back within ${HANDOVER_MINUTES} minutes. Ask in chat instead of retrying.`);
 };
 
+// The session's over: give back its tab and its place in the viewer.
+let finishing = false;
+async function finish() {
+  if (finishing) return;
+  finishing = true;
+  if (ownTab) {
+    const id = await session;
+    await Promise.allSettled([
+      callChild({ name: "browser_tabs", arguments: { action: "close" } }, 1500),
+      id ? viewer("/api/session/end", { body: { id } }) : null,
+    ]);
+  }
+  child.stdin.end();
+  setTimeout(() => process.exit(0), 500);
+}
+
 createInterface({ input: process.stdin }).on("line", (line) => {
   if (PLAIN) return void child.stdin.write(line + "\n");
   let msg;
@@ -253,18 +274,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     return;
   }
   toChild(msg);
-}).on("close", async () => {
-  // The session's over: give back its tab and its place in the viewer.
-  if (ownTab) {
-    const id = await session;
-    await Promise.allSettled([
-      callChild({ name: "browser_tabs", arguments: { action: "close" } }, 1500),
-      id ? viewer("/api/session/end", { body: { id } }) : null,
-    ]);
-  }
-  child.stdin.end();
-  setTimeout(() => child.kill(), 500);
-});
+}).on("close", finish);
+
+for (const signal of ["SIGTERM", "SIGINT", "SIGHUP"]) process.on(signal, finish);
 
 createInterface({ input: child.stdout }).on("line", (line) => {
   if (PLAIN) return void process.stdout.write(line + "\n");
