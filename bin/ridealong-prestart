@@ -11,7 +11,7 @@ import json, os, sys
 profile_dir = sys.argv[1]
 
 def edit(path, change):
-    # Never block Brave over this; the worst case is a notice or a restore bubble.
+    # Never block Brave over this; the worst case is a notice.
     try:
         try:
             with open(path) as f:
@@ -30,13 +30,16 @@ def clean_exit(prefs):
     profile["exit_type"] = "Normal"
     profile["exited_cleanly"] = True
 
-def no_analytics_notice(state):
-    p3a = state.setdefault("brave", {}).setdefault("p3a", {})
+def no_prompts(state):
+    brave = state.setdefault("brave", {})
+    p3a = brave.setdefault("p3a", {})
     p3a["enabled"] = False
     p3a["notice_acknowledged"] = True
+    # Otherwise a crash leaves a "quit unexpectedly" dialog with nobody there to answer it.
+    brave["dont_ask_for_crash_reporting"] = True
 
 if os.path.exists(os.path.join(profile_dir, "Default", "Preferences")):
     edit(os.path.join(profile_dir, "Default", "Preferences"), clean_exit)
-edit(os.path.join(profile_dir, "Local State"), no_analytics_notice)
+edit(os.path.join(profile_dir, "Local State"), no_prompts)
 PY2
 exit 0
