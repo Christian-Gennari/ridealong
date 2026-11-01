@@ -11,21 +11,24 @@ RUN echo "refresh $REFRESH" \
       https://brave-browser-apt-release.s3.brave.com/brave-browser.sources \
  && apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends \
-      brave-browser xvfb x11vnc openbox procps \
-      fonts-dejavu-core fonts-liberation fonts-noto-color-emoji fonts-noto-cjk \
- && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
+      brave-browser xvfb x11vnc matchbox-window-manager procps \
+      fonts-dejavu-core fonts-liberation fonts-noto-color-emoji fonts-wqy-microhei \
+ && dpkg --force-depends --purge libgl1-mesa-dri libglx-mesa0 libllvm15 libz3-4 \
+ && rm -rf /var/lib/apt/lists/* /var/cache/apt/* /usr/share/doc/* /usr/share/man/* \
+      /opt/brave.com/brave/chrome-management-service
 
 WORKDIR /app
 COPY viewer/package.json viewer/package-lock.json viewer/
 COPY mcp/package.json mcp/package-lock.json mcp/
 RUN cd viewer && npm ci --omit=dev --silent --no-audit --no-fund \
- && cd ../mcp && npm ci --omit=dev --silent --no-audit --no-fund
+ && cd ../mcp && npm ci --omit=dev --silent --no-audit --no-fund \
+ && rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /opt/yarn-* /usr/local/bin/yarn /usr/local/bin/yarnpkg /root/.npm
 
 COPY viewer/server.mjs viewer/
 COPY viewer/public viewer/public
 COPY mcp/ridealong-mcp.mjs mcp/
 COPY ridealong-cursor ridealong-cursor
-COPY docker/supervise.mjs docker/openbox.xml ./
+COPY docker/supervise.mjs ./
 COPY docker/ridealong-mcp /usr/local/bin/ridealong-mcp
 
 # Brave keeps running a cached background script unless its file name changes,

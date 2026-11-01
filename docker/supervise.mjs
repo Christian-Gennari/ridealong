@@ -59,7 +59,7 @@ const waitForDisplay = async () => {
 const SERVICES = [
   { name: "display", cmd: "Xvfb", args: [":99", "-screen", "0", `${RESOLUTION}x24`, "-nolisten", "tcp", "-noreset"],
     before: () => { fs.rmSync("/tmp/.X99-lock", { force: true }); fs.rmSync(SOCKET, { force: true }); } },
-  { name: "windows", display: true, cmd: "openbox", args: ["--config-file", "/app/openbox.xml"] },
+  { name: "windows", display: true, cmd: "matchbox-window-manager", args: ["-use_titlebar", "no"] },
   { name: "vnc", display: true, cmd: "x11vnc", args: ["-display", ":99", "-forever", "-shared", "-localhost", "-rfbport", "5900", "-nopw", "-quiet"] },
   { name: "viewer", cmd: "node", args: ["/app/viewer/server.mjs"] },
   { name: "brave", display: true, before: prepareProfile, cmd: "brave-browser", args: [
@@ -67,6 +67,8 @@ const SERVICES = [
     "--no-first-run", "--no-default-browser-check", "--start-maximized",
     "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
     "--load-extension=/app/ridealong-cursor",
+    // There's no GPU or GLX here: WebGL runs on the renderer Brave ships with.
+    "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
   ] },
 ];
 
