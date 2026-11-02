@@ -24,8 +24,10 @@
     </div>
     <div class="status">
       <span class="orb" id="avatar"></span>
-      <span class="who" id="who">Connecting</span>
-      <span class="what" id="what"></span>
+      <div class="status-copy">
+        <span class="who"><span id="who">Connecting</span><span class="who-note" id="who-note"></span></span>
+        <span class="what" id="what"></span>
+      </div>
     </div>
     <div class="picker" id="picker" hidden>
       <button class="picker-button" id="picker-button" aria-haspopup="listbox" aria-expanded="false" aria-controls="picker-list">
@@ -37,9 +39,9 @@
     </div>
     <div class="actions">
       <div class="segments modes" role="radiogroup" aria-label="Who controls the browser">
-        <button role="radio" data-mode="auto" title="Locked while agents work. Unlocks when one asks for you.">Auto</button>
-        <button role="radio" data-mode="watch" title="Always locked. Just watch.">Watch</button>
-        <button role="radio" data-mode="control" title="You use the browser. Agents wait until you release it.">Control</button>
+        <button role="radio" data-mode="auto" title="Locked while agents work. Unlocks when one asks for you."><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Auto</button>
+        <button role="radio" data-mode="watch" title="Always locked. Just watch."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>Watch</button>
+        <button role="radio" data-mode="control" title="You use the browser. Agents wait until you release it."><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 8-6 2-2 6z"/></svg>Control</button>
       </div>
       <button class="icon" id="fullscreen" title="Fullscreen" aria-label="Fullscreen">
         <svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
@@ -79,7 +81,7 @@
         <button class="ghost" type="submit">Send</button>
       </form>
       <div class="takeover" id="brave-down" hidden><span>Brave isn't responding</span><button id="restart-brave">Restart Brave</button></div>
-      <div class="takeover" id="takeover" hidden><span id="takeover-text"></span><button id="take-control">Take control</button></div>
+      <div class="takeover" id="takeover" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span id="takeover-text"></span><button id="take-control">Take control</button></div>
     </main>
 
     <aside class="panel" id="panel" hidden>
@@ -91,11 +93,16 @@
       </div>
 
       <div class="pane" id="pane-activity">
+        <div class="filters" role="radiogroup" aria-label="Show">
+          <button role="radio" data-filter="all">All</button>
+          <button role="radio" data-filter="tab">This tab</button>
+          <button role="radio" data-filter="asks">Asks</button>
+        </div>
         <ol id="activity"></ol>
         <div class="empty" id="activity-empty">
           <span class="orb large"></span>
-          <strong>Nothing yet</strong>
-          <span>What your agents do will show up here.</span>
+          <strong id="empty-title">Nothing yet</strong>
+          <span id="empty-text">What your agents do will show up here.</span>
         </div>
       </div>
 
@@ -167,13 +174,14 @@
               <input type="range" id="compression" min="0" max="9" step="1"></label>
           </div>
         </details>
+        <p class="about">Ridealong <span id="version"></span></p>
       </div>
 
       <footer class="foot">
         <span class="dot" id="connection-dot"></span>
         <span id="connection">Connecting</span>
-        <span id="version"></span>
-        <span class="size" id="size"></span>
+        <span class="stale" id="stale" hidden></span>
+        <span class="size"><span id="size"></span><span id="ping"></span></span>
         <button class="link" id="reconnect">Reconnect</button>
       </footer>
     </aside>

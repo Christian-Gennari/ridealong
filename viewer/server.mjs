@@ -140,7 +140,7 @@ const publish = () => {
 };
 
 const log = (who, text, extra) => {
-  if (state.activity[0]?.who === who && state.activity[0]?.text === text) return;
+  if (!extra?.answers && state.activity[0]?.who === who && state.activity[0]?.text === text) return;
   state.activity.unshift({ who, text, at: Date.now(), ...extra });
   state.activity.length = Math.min(state.activity.length, ACTIVITY_LIMIT);
 };
@@ -364,7 +364,7 @@ const api = {
     if (!current) return json(res, 404, {});
     current.text = clip(text, 80);
     current.at = Date.now();
-    if (!quiet) log(current.label, current.text);
+    if (!quiet) log(current.label, current.text, { session });
     publish();
     json(res, 200, { front: followed === session });
   },
@@ -391,7 +391,7 @@ const api = {
     state.turns.push(turn);
     current.text = "Waiting for you";
     current.at = at;
-    log(turn.agent, turn.kind === "approval" ? `Wants to act on ${turn.host}` : `Asked you: ${turn.reason}`, { ask: true });
+    log(turn.agent, turn.kind === "approval" ? `Wants to act on ${turn.host}` : `Asked you: ${turn.reason}`, { ask: true, session, turn: turn.id });
     notify(turn);
     pushTurn(turn);
     publish();
@@ -406,7 +406,7 @@ const api = {
   "POST /api/handover/cancel": async (req, res) => {
     const { id } = await readBody(req);
     const turn = state.turns.find((t) => t.id === id);
-    if (turn) log(turn.agent, "Stopped waiting for you", { ask: true });
+    if (turn) log(turn.agent, "Stopped waiting for you", { ask: true, session: turn.session, answers: turn.id, waited: Date.now() - turn.at });
     state.turns = state.turns.filter((t) => t.id !== id);
     publish();
     json(res, 200, {});
@@ -420,7 +420,8 @@ const api = {
       answered.set(turn.id, Boolean(blocked));
       const asker = sessions.get(turn.session);
       if (asker) { asker.text = "Carrying on"; asker.at = Date.now(); }
-      log("You", turn.kind !== "approval" ? (blocked ? "Declined" : "Handed back") : `${blocked ? "Blocked" : "Allowed"} ${turn.agent} on ${turn.host}`);
+      log("You", turn.kind !== "approval" ? (blocked ? "Declined" : "Handed back") : `${blocked ? "Blocked" : "Allowed"} ${turn.agent} on ${turn.host}`,
+        { session: turn.session, answers: turn.id, waited: Date.now() - turn.at });
     }
     if (!state.turns.length) pinned = false;
     if (state.mode === "control" && !state.turns.length) state.mode = "auto";
