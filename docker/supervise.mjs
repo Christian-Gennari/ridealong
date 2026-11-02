@@ -35,6 +35,11 @@ const prepareProfile = () => {
     prefs.download = { ...prefs.download, default_directory: FILES, prompt_for_download: false };
     // Brave saves every session's tab group, and they'd pile up on the bookmarks bar.
     prefs.bookmark_bar = { ...prefs.bookmark_bar, show_tab_groups: false };
+    // The "Save password?" bubble covers the page for agents and the viewer.
+    // Saved and synced passwords still fill. Only a default: turn it back on in settings.
+    prefs.credentials_enable_service ??= false;
+    // Same for "Translate this page?".
+    prefs.translate = { enabled: false, ...prefs.translate };
   });
   editJson(path.join(PROFILE, "Local State"), (state) => {
     state.brave = { ...state.brave, dont_ask_for_crash_reporting: true };
