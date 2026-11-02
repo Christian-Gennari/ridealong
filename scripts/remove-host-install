@@ -11,6 +11,7 @@ for s in ridealong-display ridealong-desktop ridealong-vnc ridealong-viewer ride
 done
 systemctl daemon-reload
 systemctl reset-failed 'ridealong-*' 2>/dev/null || true
-systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target
+# The old installer masked the sleep targets so the server stayed awake with the lid shut.
+# Leave them masked: unmasking here made servers suspend on lid close after migrating.
 if [ -f "$APP/default-target" ]; then systemctl set-default "$(cat "$APP/default-target")"; fi
 rm -rf "$APP" /usr/local/bin/ridealong-status /usr/local/bin/ridealong-prestart /usr/local/bin/ridealong-mcp
