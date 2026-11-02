@@ -1,6 +1,6 @@
 // Groups the tabs an agent works in under its name, and tells the viewer when the
 // human picks a different tab, so the two always show the same session.
-const COLORS = { claude: "orange", hermes: "blue", codex: "green", gemini: "yellow", cursor: "pink" };
+const COLORS = { claude: "orange", hermes: "blue", codex: "green", gemini: "yellow", antigravity: "purple", cursor: "pink" };
 let queue = Promise.resolve();
 
 const group = async (tab, name) => {

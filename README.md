@@ -2,7 +2,7 @@
 
 **A real browser for any AI agent. Plug it into anything that speaks MCP, ride along, and take the wheel when you need to.**
 
-Ridealong runs a real, logged-in Brave browser on your server. Claude Code, Codex, Gemini CLI, Cursor or any other MCP client can drive it. You follow along live from a web viewer, and when an agent hits a 2FA code or a CAPTCHA, it asks you to step in and carries on when you hand back.
+Ridealong runs a real, logged-in Brave browser on your server. Claude Code, Codex, Antigravity CLI, Cursor or any other MCP client can drive it. You follow along live from a web viewer, and when an agent hits a 2FA code or a CAPTCHA, it asks you to step in and carries on when you hand back.
 
 [![Claude and Codex plan a trip on Google Flights and Booking.com, then Claude hands over for a human check](docs/images/demo.webp)](docs/demo.mp4)
 
@@ -64,7 +64,7 @@ When an agent needs you, the whole viewer floods with that agent's colour and sa
 
 ![The viewer flooded orange while Claude waits at a real GitHub sign-in page](docs/images/your-turn.png)
 
-Your agent's app hears about it too: Claude Code, and any client that supports MCP elicitation, shows the reason with a link to the viewer, and the prompt clears itself once you hand back. You can also answer it right there. Claude Code and Codex show it, and Gemini CLI supports it too. Hermes gets no prompt: it would keep its agent waiting even after you hand back in the viewer, so its agent tells you in chat instead. A client that can't show the prompt declines on its own, and Ridealong keeps waiting for you in the viewer. The viewer also chimes and blinks its tab title.
+Your agent's app hears about it too: Claude Code, and any client that supports MCP elicitation, shows the reason with a link to the viewer, and the prompt clears itself once you hand back. You can also answer it right there. Claude Code and Codex show it. Antigravity CLI doesn't show these prompts yet, so you rely on push and its chat there. Hermes gets no prompt: it would keep its agent waiting even after you hand back in the viewer, so its agent tells you in chat instead. A client that can't show the prompt declines on its own, and Ridealong keeps waiting for you in the viewer. The viewer also chimes and blinks its tab title.
 
 To hear about it with no viewer open at all, press **Turn on** when the viewer offers notifications, once on each device you use. They arrive as real push notifications even with the viewer closed, in Chrome, Edge, Firefox and Safari. On an iPhone, add the viewer to your Home Screen first, which Apple requires. Brave needs **Use Google services for push messaging** turned on in its settings. To get a push on your phone when nothing's open, pass a URL, such as an [ntfy](https://ntfy.sh) topic: `ridealong up --notify https://ntfy.sh/your-secret-topic`. The reason the agent gave goes to that URL, so use one you trust.
 
@@ -113,11 +113,12 @@ Never expose the viewer to the internet without a login in front of it.
 
 Ridealong is a standard MCP server, so it's plug and play: if a tool can run a local MCP server, it works, whichever model is behind it. Everything points at one command, `ridealong mcp`, which also starts the container if it's stopped.
 
-`ridealong up` connects Claude Code, Codex, Gemini CLI and Hermes if it finds them. For anything else:
+`ridealong up` connects Claude Code, Codex, Antigravity CLI, Gemini CLI and Hermes if it finds them. For anything else:
 
 ```bash
 claude mcp add ridealong -- ridealong mcp --agent Claude      # Claude Code
 codex mcp add ridealong -- ridealong mcp --agent Codex        # Codex
+agy mcp add ridealong ridealong mcp --agent Antigravity        # Antigravity CLI
 gemini mcp add ridealong ridealong mcp --agent Gemini         # Gemini CLI
 ```
 

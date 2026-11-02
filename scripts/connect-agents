@@ -11,6 +11,7 @@ if [ "${1:-}" = --remove ]; then
   command -v claude >/dev/null && claude mcp remove ridealong --scope user >/dev/null 2>&1 || true
   command -v codex >/dev/null && codex mcp remove ridealong >/dev/null 2>&1 || true
   command -v gemini >/dev/null && gemini mcp remove --scope user ridealong >/dev/null 2>&1 || true
+  command -v agy >/dev/null && agy mcp remove ridealong >/dev/null 2>&1 || true
   python3 - "$HOME/.claude/CLAUDE.md" "$HOME/.hermes/config.yaml" <<'PY'
 import os, re, sys
 claude, hermes = sys.argv[1:]
@@ -32,7 +33,7 @@ if command -v claude >/dev/null; then
 
   # Tell future sessions how to use the browser. Replaces our block on re-runs.
   mkdir -p "$HOME/.claude"
-  python3 - "$HOME/.claude/CLAUDE.md" "$REPO/docs/agent-instructions.md" "$RIDEALONG_URL" <<'PY'
+  python3 - "$HOME/.claude/CLAUDE.md" "$REPO/docs/agent-instructions.md" "${RIDEALONG_URL:-the viewer}" <<'PY'
 import re, sys
 path, source, url = sys.argv[1:]
 start, end = "<!-- ridealong -->", "<!-- /ridealong -->"
@@ -73,6 +74,16 @@ if command -v gemini >/dev/null; then
     echo "Gemini CLI: registered"
   else
     echo "Gemini CLI: skipped, it failed to run. Fix it, then re-run this script."
+  fi
+fi
+
+# Antigravity CLI, which replaces Gemini CLI.
+if command -v agy >/dev/null; then
+  agy mcp remove ridealong >/dev/null 2>&1 || true
+  if agy mcp add ridealong "$BIN" mcp --agent Antigravity >/dev/null 2>&1; then
+    echo "Antigravity CLI: registered"
+  else
+    echo "Antigravity CLI: skipped, it failed to run. Fix it, then run: ridealong connect"
   fi
 fi
 

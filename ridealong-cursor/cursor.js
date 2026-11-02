@@ -38,6 +38,7 @@
   const ORBS = {
     claude: "radial-gradient(circle at 32% 28%, #ffe0ad, #ff8f45 46%, #dc4a1c 82%, #8a2f15)",
     codex: "radial-gradient(circle at 32% 28%, #d8fff0, #5fe0b5 48%, #16a085 84%, #0b5f55)",
+    antigravity: "radial-gradient(circle at 32% 28%, #e6e3ff, #9d8cff 46%, #5b57e8 84%, #2c2a9e)",
     gemini: "radial-gradient(circle at 32% 28%, #fff0c9, #ffc94d 46%, #e88a1a 84%, #a4520c)",
     cursor: "radial-gradient(circle at 32% 28%, #ffe0ee, #ff8fc0 48%, #d6418f 84%, #8b1d5c)",
     hermes: "radial-gradient(circle at 32% 28%, #eed6ff, #a78bfa 48%, #5f7dff 84%, #3b49c9)",

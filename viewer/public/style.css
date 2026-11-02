@@ -36,6 +36,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round
 [data-agent="claude"] { --a: #ffe9c4; --b: #ffa35a; --c: #f26a2c; --d: #b23412; }
 [data-agent="hermes"] { --a: #f3e2ff; --b: #b596ff; --c: #6d86ff; --d: #2f3fc0; }
 [data-agent="codex"] { --a: #dcfff2; --b: #6fe3bb; --c: #1fae8c; --d: #0b6b5e; }
+[data-agent="antigravity"] { --a: #e6e3ff; --b: #9d8cff; --c: #5b57e8; --d: #2c2a9e; }
 [data-agent="gemini"] { --a: #fff2cf; --b: #ffd166; --c: #f2a01e; --d: #b05c0c; }
 [data-agent="cursor"] { --a: #ffe3f0; --b: #ff9cc7; --c: #e04f9a; --d: #93205f; }
 [data-agent="you"] { --a: #f2f8ee; --b: #bfe0c6; --c: #7cb697; --d: #3f8063; }

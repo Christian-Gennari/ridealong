@@ -235,7 +235,7 @@ cmd_mcp() {
   load
   have_docker >&2
   running || cmd_up >&2
-  exec docker exec -i "$CONTAINER" ridealong-mcp "$@"
+  exec docker exec -i ${RIDEALONG_ELICITATION:+-e RIDEALONG_ELICITATION} "$CONTAINER" ridealong-mcp "$@"
 }
 
 cmd_connect() {
