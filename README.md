@@ -4,6 +4,12 @@
 
 Ridealong runs a real, logged-in Brave browser on your server. Claude Code, Codex, Antigravity CLI, Cursor or any other MCP client can drive it. You follow along live from a web viewer, and when an agent hits a 2FA code or a CAPTCHA, it asks you to step in and carries on when you hand back.
 
+**Setup is one command** on any Linux server with Docker. It takes about two minutes and connects your agents for you:
+
+```
+git clone https://github.com/Christian-Gennari/ridealong && cd ridealong && ./ridealong up
+```
+
 [![Claude and Codex plan a trip on Google Flights and Booking.com, then Claude hands over for a human check](docs/images/demo.webp)](docs/demo.mp4)
 
 <sub>Real agent sessions on real sites through Ridealong. The steps are scripted, the check is a public test page, and pauses are cut. [Watch the full-size video](docs/demo.mp4).</sub>
