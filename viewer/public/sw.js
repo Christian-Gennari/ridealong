@@ -1,5 +1,13 @@
-// Only here so the viewer can show notifications, which Android allows from a
-// service worker alone. A click brings the viewer forward.
+// Shows a turn as a notification, from a push even when the viewer is closed,
+// or from the page itself (Android only allows that from here). A click brings
+// the viewer forward.
+self.addEventListener("push", (event) => {
+  const { title, body } = event.data?.json() ?? { title: "Your turn", body: "" };
+  event.waitUntil(self.registration.showNotification(title, {
+    body, tag: "ridealong-turn", renotify: true, requireInteraction: true, icon: "/icon-192.png", badge: "/icon-192.png",
+  }));
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   event.waitUntil((async () => {

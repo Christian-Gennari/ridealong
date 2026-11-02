@@ -292,11 +292,36 @@ document.addEventListener("pointerdown", () => {
 const worker = window.isSecureContext && "serviceWorker" in navigator
   ? navigator.serviceWorker.register("/sw.js").catch(() => null) : Promise.resolve(null);
 
+// Push reaches this device even with the viewer closed. Not every browser has a
+// push service (Brave keeps it off), so the page notifies by itself as well.
+const urlKey = (base64) => Uint8Array.from(atob((base64 + "=".repeat((4 - base64.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+let pushing = false;
+const subscribe = async () => {
+  try {
+    const registration = await worker;
+    if (!registration?.pushManager) return false;
+    const { key } = await (await fetch("/api/push")).json();
+    const subscription = await registration.pushManager.getSubscription()
+      ?? await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlKey(key) });
+    pushing = (await post("/api/push/subscribe", { subscription })).ok;
+  } catch {
+    pushing = false;
+  }
+  return pushing;
+};
+const unsubscribe = async () => {
+  const subscription = await (await worker)?.pushManager?.getSubscription().catch(() => null);
+  if (!subscription) return;
+  await post("/api/push/unsubscribe", { endpoint: subscription.endpoint }).catch(() => {});
+  await subscription.unsubscribe().catch(() => {});
+  pushing = false;
+};
+
 const notifyDevice = async (turn) => {
-  if (!settings.notifications || document.hasFocus() || window.Notification?.permission !== "granted") return;
+  if (pushing || !settings.notifications || document.hasFocus() || window.Notification?.permission !== "granted") return;
   const approval = turn.kind === "approval";
   const title = approval ? `Allow ${turn.agent}?` : `Your turn: ${turn.agent}`;
-  const options = { body: approval ? `${turn.agent} wants to click and type on ${turn.host}.` : turn.reason, tag: "ridealong-turn", renotify: true, requireInteraction: true, icon: "/icon.svg" };
+  const options = { body: approval ? `${turn.agent} wants to click and type on ${turn.host}.` : turn.reason, tag: "ridealong-turn", renotify: true, requireInteraction: true, icon: "/icon-192.png" };
   try {
     const registration = await worker;
     if (registration) return await registration.showNotification(title, options);
@@ -316,6 +341,7 @@ $("nudge-yes").addEventListener("click", async () => {
   save();
   refreshNotifications();
   nudge();
+  if (settings.notifications) subscribe();
 });
 $("nudge-no").addEventListener("click", () => { settings.nudged = true; save(); nudge(); });
 
@@ -517,15 +543,18 @@ $("typer").addEventListener("submit", (e) => {
 
 const NOTIFY_OK = "Notification" in window && window.isSecureContext;
 const refreshNotifications = bind("notifications", "notifications", () => {
-  if (!settings.notifications) return;
+  if (!settings.notifications) return void unsubscribe();
   Notification.requestPermission().then((answer) => {
     if (answer !== "granted") { settings.notifications = false; save(); refreshNotifications(); }
+    else subscribe();
     $("notifications-hint").hidden = answer === "granted";
     $("notifications-hint").textContent = "Your browser blocked notifications for this site.";
   });
 });
 bind("sound", "sound", () => {});
 nudge();
+// Keeps the server's copy current: browsers rotate subscriptions now and then.
+if (NOTIFY_OK && settings.notifications && Notification.permission === "granted") subscribe();
 if (!NOTIFY_OK) {
   $("notifications").disabled = true;
   $("notifications").checked = false;

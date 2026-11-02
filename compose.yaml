@@ -36,6 +36,7 @@ services:
     environment:
       RIDEALONG_FILES: ${RIDEALONG_FILES}
       RULES_FILE: /profile/ridealong-rules.json
+      PUSH_FILE: /profile/ridealong-push.json
       RIDEALONG_RESOLUTION: ${RIDEALONG_RESOLUTION:-1920x1080}
       RIDEALONG_HOST_NETWORK: ${RIDEALONG_HOST_NETWORK:-0}
       VIEWER_HOST: 0.0.0.0

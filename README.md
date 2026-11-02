@@ -64,7 +64,9 @@ When an agent needs you, the whole viewer floods with that agent's colour and sa
 
 ![The viewer flooded orange while Claude waits at a real GitHub sign-in page](docs/images/your-turn.png)
 
-Your agent's app hears about it too: Claude Code, and any client that supports MCP elicitation, shows the reason with a link to the viewer, and the prompt clears itself once you hand back. Declining it there tells the agent no. The viewer also chimes, blinks its tab title, and offers to send a notification to that device, which stays until you click it, even with the tab in the background. To get a push on your phone when nothing's open, pass a URL, such as an [ntfy](https://ntfy.sh) topic: `ridealong up --notify https://ntfy.sh/your-secret-topic`. The reason the agent gave goes to that URL, so use one you trust.
+Your agent's app hears about it too: Claude Code, and any client that supports MCP elicitation, shows the reason with a link to the viewer, and the prompt clears itself once you hand back. You can also answer it right there. Claude Code and Codex show it, and Gemini CLI and Hermes support it too. A client that can't show it declines on its own, and Ridealong keeps waiting for you in the viewer. The viewer also chimes and blinks its tab title.
+
+To hear about it with no viewer open at all, press **Turn on** when the viewer offers notifications, once on each device you use. They arrive as real push notifications even with the viewer closed, in Chrome, Edge, Firefox and Safari. On an iPhone, add the viewer to your Home Screen first, which Apple requires. Brave needs **Use Google services for push messaging** turned on in its settings. To get a push on your phone when nothing's open, pass a URL, such as an [ntfy](https://ntfy.sh) topic: `ridealong up --notify https://ntfy.sh/your-secret-topic`. The reason the agent gave goes to that URL, so use one you trust.
 
 On a phone or tablet, the viewer adds a **Type into the browser** box whenever the screen is unlocked, because touch keyboards can't type into a remote screen. Tap the field in the browser, type or paste your code in the box, and press **Send**.
 

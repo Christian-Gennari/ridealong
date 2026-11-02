@@ -1,11 +1,17 @@
 // Drives the real server over HTTP, the way the viewer and agents do.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import { after, before, test } from "node:test";
+import { createRequire } from "node:module";
+
+const ece = createRequire(import.meta.url)("http_ece");
 
 const SERVER = new URL("../server.mjs", import.meta.url).pathname;
 const running = [];
@@ -181,6 +187,49 @@ test("a declined handover says so in the activity list", async () => {
   await a.call("/api/done", { id: turn, blocked: true });
   assert.equal((await a.view()).activity[0].text, "Declined");
   await a.call("/api/session/end", { id });
+});
+
+test("web push reaches subscribed devices, encrypted, and drops dead ones", async () => {
+  const file = path.join(os.tmpdir(), `ridealong-push-${process.pid}.json`);
+  fs.rmSync(file, { force: true });
+  const device = crypto.createECDH("prime256v1");
+  device.generateKeys();
+  const auth = crypto.randomBytes(16);
+  const got = [];
+  let gone = false;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-tls-"));
+  execFileSync("openssl", ["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-days", "1",
+    "-subj", "/CN=127.0.0.1", "-keyout", `${dir}/key.pem`, "-out", `${dir}/cert.pem`], { stdio: "ignore" });
+  const service = https.createServer({ key: fs.readFileSync(`${dir}/key.pem`), cert: fs.readFileSync(`${dir}/cert.pem`) }, (req, res) => {
+    const chunks = [];
+    req.on("data", (c) => chunks.push(c));
+    req.on("end", () => {
+      got.push({ path: req.url, vapid: String(req.headers.authorization).startsWith("vapid t="), body: Buffer.concat(chunks) });
+      res.writeHead(req.url === "/gone" ? 410 : 201);
+      res.end();
+      if (req.url === "/gone") gone = true;
+    });
+  }).listen(16209);
+  // The fake push service's certificate is self-signed.
+  const viewer = api(await start(16208, { PUSH_FILE: file, NODE_TLS_REJECT_UNAUTHORIZED: "0" }));
+  const { key } = await viewer.call("/api/push");
+  assert.ok(key.length > 80);
+  const subscription = (endpoint) => ({ endpoint, keys: { p256dh: device.getPublicKey("base64url"), auth: auth.toString("base64url") } });
+  assert.equal((await viewer.call("/api/push/subscribe", { subscription: subscription("http://192.168.1.9/x") })).status, 400);
+  await viewer.call("/api/push/subscribe", { subscription: subscription("https://127.0.0.1:16209/live") });
+  await viewer.call("/api/push/subscribe", { subscription: subscription("https://127.0.0.1:16209/gone") });
+  const id = await viewer.join("Codex");
+  await viewer.call("/api/handover", { session: id, reason: "Enter the 2FA code" });
+  for (let i = 0; i < 50 && (got.length < 2 || !gone); i++) await new Promise((r) => setTimeout(r, 100));
+  const live = got.find((g) => g.path === "/live");
+  assert.ok(live.vapid);
+  const plain = ece.decrypt(live.body, { version: "aes128gcm", privateKey: device, authSecret: auth.toString("base64url") });
+  assert.deepEqual(JSON.parse(plain), { title: "Your turn: Codex", body: "Enter the 2FA code" });
+  await new Promise((r) => setTimeout(r, 200));
+  assert.equal((await viewer.call("/api/push")).devices, 1);
+  service.close();
+  fs.rmSync(file, { force: true });
+  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test("a new turn pushes to the notify URL", async () => {

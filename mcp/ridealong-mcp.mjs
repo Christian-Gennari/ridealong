@@ -351,6 +351,7 @@ const absolutePaths = (answer) => {
 // viewer isn't open. URL mode links to the viewer and clears itself when it's
 // answered there; form mode lets the human answer in the client instead.
 let elicitation = null;
+const HUMAN_MS = 3000;
 let nextClientId = 0;
 const clientPending = new Map();
 const clientRequest = (method, params) => {
@@ -365,7 +366,9 @@ const prompt = (reason, extra, turnId) => {
   const said = String(reason).trim().replace(/[^.!?]$/, "$&.");
   const what = approval ? `${label} wants to click and type on ${extra.host}.` : `${label} needs you in the browser: ${said}`;
   const link = process.env.VIEWER_URL;
-  if (elicitation.url && link) {
+  // Form mode by default: clients that claim URL mode don't all show it (Codex
+  // 0.163 doesn't), while form mode shows everywhere and can be answered in place.
+  if (elicitation.url && link && process.env.RIDEALONG_ELICITATION === "url") {
     const elicitationId = `ridealong-${turnId}`;
     const request = clientRequest("elicitation/create", {
       mode: "url", elicitationId, url: link,
@@ -403,13 +406,19 @@ const ask = async (reason, extra = {}) => {
     return null;
   }
   const asked = prompt(reason, extra, id);
+  const askedAt = Date.now();
   let answered = false;
-  // An answer in the client goes to the viewer, which ends the wait below.
+  // An answer in the client goes to the viewer, which ends the wait below. Clients
+  // decline on their own when nobody can see the prompt (an unattended run, a mode
+  // they don't show, a timeout), so a decline only ever counts as blocking a site,
+  // and only once a person has had time to read it. Otherwise the viewer decides.
   asked?.answer.then(({ result }) => {
     answered = true;
     const action = result?.action;
     if (asked.form && action === "accept") viewer("/api/done", { body: { id } }).catch(() => {});
-    else if (action === "decline") viewer("/api/done", { body: { id, blocked: true } }).catch(() => {});
+    else if (action === "decline" && extra.kind === "approval" && Date.now() - askedAt > HUMAN_MS) {
+      viewer("/api/done", { body: { id, blocked: true } }).catch(() => {});
+    }
   });
   const finished = (r) => { if (asked && !answered) asked.done(); return r; };
   while (Date.now() < deadline) {

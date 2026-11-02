@@ -7,6 +7,7 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import webpush from "web-push";
 import { WebSocketServer } from "ws";
 
 const HOST = process.env.VIEWER_HOST || "127.0.0.1";
@@ -152,7 +153,7 @@ const nextChange = () => new Promise((resolve) => {
 
 const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8",
+  ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".webmanifest": "application/manifest+json", ".png": "image/png", ".woff2": "font/woff2", ".txt": "text/plain; charset=utf-8",
 };
 const SECURITY_HEADERS = {
   "Content-Security-Policy": "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob:; " +
@@ -224,6 +225,47 @@ const saveRules = () => {
 
 const clip = (s, n) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, n);
 
+// Web push: the devices you turned notifications on for hear about a turn even
+// with the viewer closed, whichever agent client asked. Keys and subscriptions
+// live next to the Brave profile, so they survive updates.
+const PUSH_FILE = process.env.PUSH_FILE || "";
+const pushState = (() => {
+  try { return JSON.parse(fs.readFileSync(PUSH_FILE, "utf8")); } catch { /* first start */ }
+  return { ...webpush.generateVAPIDKeys(), subscriptions: [] };
+})();
+const savePush = () => {
+  if (!PUSH_FILE) return;
+  fs.writeFileSync(`${PUSH_FILE}.tmp`, JSON.stringify(pushState), { mode: 0o600 });
+  fs.renameSync(`${PUSH_FILE}.tmp`, PUSH_FILE);
+};
+savePush();
+webpush.setVapidDetails("https://github.com/Christian-Gennari/ridealong", pushState.publicKey, pushState.privateKey);
+
+// Push services are on the internet; anything else is someone pointing us elsewhere.
+const pushEndpoint = (value) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:";
+  } catch { return false; }
+};
+
+const pushTurn = (turn) => {
+  const approval = turn.kind === "approval";
+  const payload = JSON.stringify({
+    title: approval ? `Allow ${turn.agent}?` : `Your turn: ${turn.agent}`,
+    body: approval ? `${turn.agent} wants to click and type on ${turn.host}.` : turn.reason,
+  });
+  for (const subscription of pushState.subscriptions) {
+    webpush.sendNotification(subscription, payload, { TTL: 600, urgency: "high" }).catch((e) => {
+      // The browser dropped this subscription, so stop sending to it.
+      if (e.statusCode === 404 || e.statusCode === 410) {
+        pushState.subscriptions = pushState.subscriptions.filter((s) => s.endpoint !== subscription.endpoint);
+        savePush();
+      } else console.error(`push: ${e.statusCode ?? e.message}`);
+    });
+  }
+};
+
 // A push for when nobody's looking at the viewer. Plain text, so ntfy works as is.
 const notify = (turn) => {
   if (!NOTIFY_URL) return;
@@ -248,6 +290,21 @@ const api = {
     if (!braveDown()) return json(res, 409, { error: "Brave is responding" });
     // The supervisor starts it again.
     execFile("pkill", ["-9", "-x", "brave"], () => json(res, 200, {}));
+  },
+  "GET /api/push": (req, res) => json(res, 200, { key: pushState.publicKey, devices: pushState.subscriptions.length }),
+  "POST /api/push/subscribe": async (req, res) => {
+    const { subscription } = await readBody(req);
+    const { endpoint, keys } = subscription ?? {};
+    if (!pushEndpoint(endpoint) || typeof keys?.p256dh !== "string" || typeof keys?.auth !== "string") return json(res, 400, { error: "subscription" });
+    pushState.subscriptions = [...pushState.subscriptions.filter((s) => s.endpoint !== endpoint), { endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } }].slice(-20);
+    savePush();
+    json(res, 200, { devices: pushState.subscriptions.length });
+  },
+  "POST /api/push/unsubscribe": async (req, res) => {
+    const { endpoint } = await readBody(req);
+    pushState.subscriptions = pushState.subscriptions.filter((s) => s.endpoint !== endpoint);
+    savePush();
+    json(res, 200, {});
   },
   "GET /api/rules": (req, res) => json(res, 200, { hosts: rules }),
   "POST /api/rules": async (req, res) => {
@@ -336,6 +393,7 @@ const api = {
     current.at = at;
     log(turn.agent, turn.kind === "approval" ? `Wants to act on ${turn.host}` : `Asked you: ${turn.reason}`, { ask: true });
     notify(turn);
+    pushTurn(turn);
     publish();
     json(res, 200, { id: turn.id });
   },
