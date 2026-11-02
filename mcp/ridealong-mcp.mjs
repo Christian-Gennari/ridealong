@@ -347,6 +347,46 @@ const absolutePaths = (answer) => {
   return answer;
 };
 
+// The client can raise its own prompt too, so a request isn't missed when the
+// viewer isn't open. URL mode links to the viewer and clears itself when it's
+// answered there; form mode lets the human answer in the client instead.
+let elicitation = null;
+let nextClientId = 0;
+const clientPending = new Map();
+const clientRequest = (method, params) => {
+  const id = `ridealong-client:${++nextClientId}`;
+  toClient({ jsonrpc: "2.0", id, method, params });
+  return { id, answer: new Promise((resolve) => clientPending.set(id, resolve)) };
+};
+
+const prompt = (reason, extra, turnId) => {
+  if (!elicitation) return null;
+  const approval = extra.kind === "approval";
+  const said = String(reason).trim().replace(/[^.!?]$/, "$&.");
+  const what = approval ? `${label} wants to click and type on ${extra.host}.` : `${label} needs you in the browser: ${said}`;
+  const link = process.env.VIEWER_URL;
+  if (elicitation.url && link) {
+    const elicitationId = `ridealong-${turnId}`;
+    const request = clientRequest("elicitation/create", {
+      mode: "url", elicitationId, url: link,
+      message: `${what} Open the viewer to ${approval ? "allow or block it" : "do it, then press Hand back"}.`,
+    });
+    return {
+      ...request,
+      // Complete covers a prompt that was accepted; cancelled clears one still on screen.
+      done: () => {
+        toClient({ jsonrpc: "2.0", method: "notifications/elicitation/complete", params: { elicitationId } });
+        toClient({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: request.id, reason: "Answered in the viewer" } });
+      },
+    };
+  }
+  const request = clientRequest("elicitation/create", {
+    message: `${what}${link ? ` Viewer: ${link}` : ""} ${approval ? "Accept to allow it for 10 minutes, decline to block it." : "Accept once you've done it."}`,
+    requestedSchema: { type: "object", properties: {} },
+  });
+  return { ...request, form: true, done: () => toClient({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: request.id, reason: "Answered in the viewer" } }) };
+};
+
 const reply = (msg, text) => toClient({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }] } });
 
 // Puts a request in front of the human and waits for the answer. Null means the
@@ -362,14 +402,24 @@ const ask = async (reason, extra = {}) => {
   } catch {
     return null;
   }
+  const asked = prompt(reason, extra, id);
+  let answered = false;
+  // An answer in the client goes to the viewer, which ends the wait below.
+  asked?.answer.then(({ result }) => {
+    answered = true;
+    const action = result?.action;
+    if (asked.form && action === "accept") viewer("/api/done", { body: { id } }).catch(() => {});
+    else if (action === "decline") viewer("/api/done", { body: { id, blocked: true } }).catch(() => {});
+  });
+  const finished = (r) => { if (asked && !answered) asked.done(); return r; };
   while (Date.now() < deadline) {
     const r = await viewer(`/api/handover/wait?id=${id}`, { timeoutMs: LONG_POLL_MS }).catch(() => sleep(2000));
-    if (r?.done) return r;
+    if (r?.done) return finished(r);
     // The viewer restarted and lost the request, so nobody has answered it.
     if (r?.lost) ({ id } = await post().catch(() => ({ id })));
   }
   await viewer("/api/handover/cancel", { body: { id } }).catch(() => {});
-  return { timedOut: true };
+  return finished({ timedOut: true });
 };
 
 const handover = async (msg, { reason }) => {
@@ -379,6 +429,7 @@ const handover = async (msg, { reason }) => {
   await waiting;
   if (!result) return reply(msg, "The viewer isn't running, so nobody can see this request. Ask in chat instead.");
   if (result.timedOut) return reply(msg, `Nobody handed control back within ${HANDOVER_MINUTES} minutes. Ask in chat instead of retrying.`);
+  if (result.blocked) return reply(msg, "The human said no. Ask them in chat how they want to go on.");
   reply(msg, "The human handed control back. Take a new snapshot before continuing: the page has probably changed.");
 };
 
@@ -402,7 +453,18 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   let msg;
   try { msg = JSON.parse(line); } catch { return void child.stdin.write(line + "\n"); }
   if (msg.method === "tools/list") listIds.add(msg.id);
-  if (msg.method === "initialize") initIds.add(msg.id);
+  if (msg.method === "initialize") {
+    initIds.add(msg.id);
+    const offered = msg.params?.capabilities?.elicitation;
+    // An empty object is the older way of saying form mode only.
+    if (offered) elicitation = { url: Boolean(offered.url), form: Boolean(offered.form) || !Object.keys(offered).length };
+  }
+  // The client answering one of our own requests.
+  if (clientPending.has(msg.id) && !msg.method) {
+    clientPending.get(msg.id)(msg);
+    clientPending.delete(msg.id);
+    return;
+  }
   if (msg.method === "tools/call") {
     handleCall(msg).catch((e) => toClient({
       jsonrpc: "2.0", id: msg.id, error: { code: -32603, message: e.message },

@@ -288,13 +288,36 @@ document.addEventListener("pointerdown", () => {
   chime.resume();
 }, { once: true, capture: true });
 
-const notifyDevice = (turn) => {
-  if (!settings.notifications || !document.hidden || window.Notification?.permission !== "granted") return;
+// Through the service worker where there is one, which is the only way on Android.
+const worker = window.isSecureContext && "serviceWorker" in navigator
+  ? navigator.serviceWorker.register("/sw.js").catch(() => null) : Promise.resolve(null);
+
+const notifyDevice = async (turn) => {
+  if (!settings.notifications || document.hasFocus() || window.Notification?.permission !== "granted") return;
+  const approval = turn.kind === "approval";
+  const title = approval ? `Allow ${turn.agent}?` : `Your turn: ${turn.agent}`;
+  const options = { body: approval ? `${turn.agent} wants to click and type on ${turn.host}.` : turn.reason, tag: "ridealong-turn", renotify: true, requireInteraction: true, icon: "/icon.svg" };
   try {
-    const note = new Notification("Your turn", { body: `${turn.agent}: ${turn.reason}`, tag: "ridealong-turn" });
+    const registration = await worker;
+    if (registration) return await registration.showNotification(title, options);
+    const note = new Notification(title, options);
     note.onclick = () => { window.focus(); note.close(); };
-  } catch { /* Android only allows these from a service worker */ }
+  } catch { /* nothing more to try */ }
 };
+
+// Without this, a request waits unseen whenever the viewer isn't in front of you.
+const nudge = () => {
+  const show = NOTIFY_OK && Notification.permission === "default" && !settings.notifications && !settings.nudged;
+  $("nudge").hidden = !show;
+};
+$("nudge-yes").addEventListener("click", async () => {
+  settings.nudged = true;
+  settings.notifications = (await Notification.requestPermission()) === "granted";
+  save();
+  refreshNotifications();
+  nudge();
+});
+$("nudge-no").addEventListener("click", () => { settings.nudged = true; save(); nudge(); });
 
 const flash = (turn) => {
   const approval = turn.kind === "approval";
@@ -502,6 +525,7 @@ const refreshNotifications = bind("notifications", "notifications", () => {
   });
 });
 bind("sound", "sound", () => {});
+nudge();
 if (!NOTIFY_OK) {
   $("notifications").disabled = true;
   $("notifications").checked = false;

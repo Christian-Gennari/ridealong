@@ -141,6 +141,12 @@ main { position: relative; flex: 1; min-width: 0; padding: 12px; border-radius: 
   .typer input { flex: 1; min-width: 0; height: 36px; padding: 0 14px; border: 0; outline: 0; background: none; color: var(--ink); font: inherit; font-size: 16px; }
 }
 
+.nudge { position: relative; z-index: 1; flex: none; display: flex; align-items: center; gap: 14px; margin: 0 16px 12px; padding: 8px 8px 8px 18px; border-radius: 999px; background: var(--tray); color: var(--body); font-size: 13.5px; }
+.nudge span { flex: 1; }
+.nudge .link { margin-left: 0; color: var(--body); }
+.nudge .ghost { flex: none; }
+body.turn .nudge { display: none; }
+
 /* Sidebar */
 .panel { flex: none; display: flex; flex-direction: column; width: 340px; min-height: 0; border-radius: 20px; background: var(--card); box-shadow: inset 0 0 0 1px var(--line); }
 .panel-head { flex: none; display: flex; align-items: center; justify-content: space-between; padding: 12px 12px 8px; }

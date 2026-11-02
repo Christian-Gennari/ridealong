@@ -175,6 +175,14 @@ test("an approval can be blocked, and the agent learns it was", async () => {
   await a.call("/api/session/end", { id });
 });
 
+test("a declined handover says so in the activity list", async () => {
+  const id = await a.join("Claude");
+  const { id: turn } = await a.call("/api/handover", { session: id, reason: "x" });
+  await a.call("/api/done", { id: turn, blocked: true });
+  assert.equal((await a.view()).activity[0].text, "Declined");
+  await a.call("/api/session/end", { id });
+});
+
 test("a new turn pushes to the notify URL", async () => {
   const got = new Promise((resolve) => {
     const hook = http.createServer((req, res) => {

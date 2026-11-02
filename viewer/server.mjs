@@ -362,7 +362,7 @@ const api = {
       answered.set(turn.id, Boolean(blocked));
       const asker = sessions.get(turn.session);
       if (asker) { asker.text = "Carrying on"; asker.at = Date.now(); }
-      log("You", turn.kind !== "approval" ? "Handed back" : `${blocked ? "Blocked" : "Allowed"} ${turn.agent} on ${turn.host}`);
+      log("You", turn.kind !== "approval" ? (blocked ? "Declined" : "Handed back") : `${blocked ? "Blocked" : "Allowed"} ${turn.agent} on ${turn.host}`);
     }
     if (!state.turns.length) pinned = false;
     if (state.mode === "control" && !state.turns.length) state.mode = "auto";
