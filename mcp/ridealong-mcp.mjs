@@ -465,8 +465,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (msg.method === "initialize") {
     initIds.add(msg.id);
     const offered = msg.params?.capabilities?.elicitation;
+    // Hermes holds the agent's turn until its prompt is answered, and can't take
+    // a prompt back, so after a hand back in the viewer the agent would sit there.
+    const holdsTurn = /hermes/i.test(msg.params?.clientInfo?.name ?? "");
     // An empty object is the older way of saying form mode only.
-    if (offered) elicitation = { url: Boolean(offered.url), form: Boolean(offered.form) || !Object.keys(offered).length };
+    if (offered && !holdsTurn) elicitation = { url: Boolean(offered.url), form: Boolean(offered.form) || !Object.keys(offered).length };
   }
   // The client answering one of our own requests.
   if (clientPending.has(msg.id) && !msg.method) {
