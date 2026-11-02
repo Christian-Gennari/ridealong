@@ -181,6 +181,19 @@ test("an approval can be blocked, and the agent learns it was", async () => {
   await a.call("/api/session/end", { id });
 });
 
+test("activity names its tab, and an answer points at the request it answers", async () => {
+  const id = await a.join("Claude");
+  await a.call("/api/activity", { session: id, text: "Clicking Save" });
+  const { id: turn } = await a.call("/api/handover", { session: id, reason: "x" });
+  await a.call("/api/done", { id: turn });
+  const [answer, ask, step] = (await a.view()).activity;
+  assert.equal(step.session, id);
+  assert.deepEqual([ask.session, ask.turn, ask.ask], [id, turn, true]);
+  assert.deepEqual([answer.who, answer.answers, answer.session], ["You", turn, id]);
+  assert.ok(answer.waited >= 0);
+  await a.call("/api/session/end", { id });
+});
+
 test("a declined handover says so in the activity list", async () => {
   const id = await a.join("Claude");
   const { id: turn } = await a.call("/api/handover", { session: id, reason: "x" });

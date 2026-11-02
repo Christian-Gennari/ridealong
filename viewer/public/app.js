@@ -5,7 +5,7 @@ import keysyms from "/vendor/novnc/core/input/keysymdef.js";
 
 const $ = (id) => document.getElementById(id);
 const SETTINGS_KEY = "ridealong-settings";
-const DEFAULTS = { fit: true, dotCursor: true, quality: 6, compression: 2, panel: false, tab: "activity", appearance: "system", sound: true, notifications: false };
+const DEFAULTS = { fit: true, dotCursor: true, quality: 6, compression: 2, panel: false, tab: "activity", filter: "all", appearance: "system", sound: true, notifications: false };
 const PRESETS = {
   sharp: { quality: 8, compression: 2 },
   balanced: { quality: 6, compression: 2 },
@@ -84,12 +84,37 @@ const connect = () => {
   rfb.addEventListener("clipboard", (e) => { $("clipboard").value = e.detail.text; });
 };
 
-const AGO = new Intl.RelativeTimeFormat(undefined, { style: "narrow" });
 const ago = (at) => {
   const s = Math.round((Date.now() - at) / 1000);
-  if (s < 60) return "Now";
-  if (s < 3600) return AGO.format(-Math.round(s / 60), "minute");
-  return AGO.format(-Math.round(s / 3600), "hour");
+  if (s < 60) return "Just now";
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  return `${Math.round(s / 3600)} h ago`;
+};
+const took = (ms) => {
+  const s = Math.max(1, Math.round(ms / 1000));
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}`;
+};
+
+// Agents report steps as they start them ("Clicking Save"); the log reads them back as done.
+const PAST = [["Opening", "Opened"], ["Going back", "Went back"], ["Clicking", "Clicked"], ["Pointing at", "Pointed at"],
+  ["Typing in", "Typed in"], ["Filling in", "Filled in"], ["Pressing", "Pressed"], ["Choosing in", "Chose in"],
+  ["Reading", "Read"], ["Searching", "Searched"], ["Uploading", "Uploaded"], ["Dragging", "Dragged"], ["Dropping", "Dropped"],
+  ["Switching", "Switched"], ["Waiting", "Waited"], ["Working on", "Worked on"], ["Asking to act on", "Asked to act on"]];
+const KEY_GLYPHS = { ArrowDown: "↓", ArrowUp: "↑", ArrowLeft: "←", ArrowRight: "→" };
+// The part after the verb is the button, field or site, so it stands out from the verb.
+const OBJECT = /^(Opening|Clicking|Pointing at|Typing in|Pressing|Choosing in|Asking to act on|Opened|Clicked|Pointed at|Typed in|Pressed|Chose in|Asked to act on|Wants to act on) (.+)$/;
+const SITES = /^(Opening|Opened|Asking to act on|Asked to act on|Wants to act on)$/;
+const phrase = (text, past = false) => {
+  const frag = document.createDocumentFragment();
+  let t = text;
+  if (past) for (const [now, then] of PAST) if (t.startsWith(`${now} `) || t === now) { t = then + t.slice(now.length); break; }
+  const m = t.match(OBJECT);
+  if (!m) { frag.append(t); return frag; }
+  const obj = document.createElement(SITES.test(m[1]) ? "span" : "b");
+  if (SITES.test(m[1])) obj.className = "host";
+  obj.textContent = m[2];
+  frag.append(`${m[1]} `, obj);
+  return frag;
 };
 
 const WORKING_MS = 30000;
@@ -112,12 +137,13 @@ const openPicker = (open) => {
 // With parallel sessions, pick whose tab the screen shows.
 const renderPicker = () => {
   const list = view.sessions ?? [];
-  const many = list.length > 1;
-  $("picker").hidden = !many;
+  const others = list.filter((x) => !x.followed);
+  const show = others.length > 0;
+  $("picker").hidden = !show;
   document.body.classList.toggle("someone-waiting", list.some((x) => x.needsYou && !x.followed));
-  if (!many) return openPicker(false);
-  $("picker-count").textContent = `${list.length} sessions`;
-  $("picker-orbs").replaceChildren(...list.slice(0, 3).map((x) => orbFor(x.label)));
+  if (!show) return openPicker(false);
+  $("picker-count").textContent = `${others.length} other ${others.length === 1 ? "tab" : "tabs"}`;
+  $("picker-orbs").replaceChildren(...others.slice(0, 3).map((x) => orbFor(x.label)));
   const focused = document.activeElement?.dataset?.session;
   $("picker-list").replaceChildren(...list.map((x) => {
     const li = document.createElement("li");
@@ -165,48 +191,109 @@ document.addEventListener("pointerdown", (e) => {
   if (!$("picker").contains(e.target)) openPicker(false);
 }, true);
 
-const STEP_ICONS = [
-  [/^Opening|^Going back/, '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/>'],
-  [/^Typing|^Filling|^Pressing/, '<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"/>'],
-  [/^Asked/, '<path d="M12 8v5m0 3h.01"/><circle cx="12" cy="12" r="9"/>'],
-  [/^Took|^Released|^Handed/, '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4-6 8-6s7 2 8 6"/>'],
-];
-const stepIcon = (s) => STEP_ICONS.find(([re]) => re.test(s.text))?.[1] ?? '<path d="m4 4 7 16 2.5-6.5L20 11Z"/>';
+const orbOf = (who) => orbFor(who === "You" ? "you" : who);
+const el = (tag, cls, ...kids) => {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  e.append(...kids);
+  return e;
+};
+const expanded = new Set();
+const SHOWN_STEPS = 5;
 
-// Runs of steps by the same actor read as one group, newest first.
-const renderActivity = () => {
-  const groups = [];
-  for (const a of view.activity) {
-    const last = groups.at(-1);
-    if (last?.who === a.who) last.steps.push(a);
-    else groups.push({ who: a.who, at: a.at, steps: [a] });
+// What a human did about a request, said from where the card stands.
+const answerLine = (a) => {
+  const after = took(a.waited ?? 0);
+  if (a.who !== "You") return [`${a.who} stopped waiting after `, el("b", "", after)];
+  const verb = { "Handed back": "handed back", Declined: "declined" }[a.text] ?? (a.text.startsWith("Blocked") ? "blocked it" : "allowed it");
+  return [`You ${verb} after `, el("b", "", after)];
+};
+
+const askCard = (ask, answer) => {
+  const approval = ask.text.startsWith("Wants to act on");
+  const body = approval ? phrase(ask.text) : ask.text.replace(/^Asked you: /, "");
+  const card = el("li", "ask-card",
+    el("div", "ask-head", orbOf(ask.who), el("span", "", el("b", "", ask.who), approval ? " asked for your OK" : " asked you"), el("time", "", ago(ask.at))),
+    el("p", "", body));
+  const open = view.turn?.id === ask.turn;
+  if (answer) card.append(el("div", "ask-answer", orbOf(answer.who), el("span", "", ...answerLine(answer))));
+  else if (open) card.append(el("div", "ask-answer", el("span", "", "Waiting for you")));
+  return card;
+};
+
+// Runs of key presses read as one step: "Pressed Enter ↓ Enter".
+const pressedKeys = (steps) => {
+  const out = [];
+  for (const s of steps) {
+    const key = s.text.match(/^Pressing (.+)$/)?.[1];
+    const prev = out.at(-1);
+    if (key && prev?.keys) prev.keys.unshift(key);
+    else out.push(key ? { ...s, keys: [key] } : s);
   }
-  $("activity").replaceChildren(...groups.map((g) => {
-    const li = document.createElement("li");
-    li.className = "group";
-    const head = document.createElement("div");
-    head.className = "group-head";
-    const badge = document.createElement("span");
-    badge.className = "orb small";
-    badge.dataset.agent = base(g.who);
-    const who = document.createElement("span");
-    who.textContent = g.who;
-    const time = document.createElement("time");
-    time.textContent = ago(g.at);
-    head.append(badge, who, time);
-    li.append(head, ...g.steps.map((s) => {
-      const step = document.createElement("div");
-      step.className = s.ask ? "step ask" : "step";
-      step.innerHTML = `<svg viewBox="0 0 24 24">${stepIcon(s)}</svg>`;
-      const text = document.createElement("span");
-      text.textContent = s.text;
-      step.append(text);
-      return step;
-    }));
+  return out;
+};
+
+const stepRow = (s) => {
+  const row = el("div", "step");
+  if (s.keys) row.append("Pressed ", ...s.keys.flatMap((k, i) => [i ? " " : "", el("b", "", KEY_GLYPHS[k] ?? k)]));
+  else row.append(phrase(s.text, true));
+  return row;
+};
+
+// Runs of steps by the same actor in the same tab read as one group, newest first.
+const renderActivity = () => {
+  const here = view.sessions?.find((x) => x.followed)?.id;
+  const filter = settings.filter;
+  const all = view.activity;
+  const asks = new Set(all.filter((a) => a.turn != null).map((a) => a.turn));
+  const answers = new Map(all.filter((a) => asks.has(a.answers)).map((a) => [a.answers, a]));
+  const items = [];
+  for (const a of all) {
+    if (filter === "tab" && a.session !== here) continue;
+    if (a.turn != null) { items.push({ card: a }); continue; }
+    if (asks.has(a.answers)) continue;
+    if (filter === "asks") continue;
+    const last = items.at(-1);
+    if (last?.steps && last.who === a.who && last.session === a.session) last.steps.push(a);
+    else items.push({ who: a.who, session: a.session, at: a.at, steps: [a] });
+  }
+  $("activity").replaceChildren(...items.map((g) => {
+    if (g.card) return askCard(g.card, answers.get(g.card.turn));
+    const n = g.steps.length;
+    const where = g.who === "You" || g.session == null ? "" : g.session === here ? "This tab" : "Other tab";
+    const sub = g.who === "You" ? "" : [where, `${n} ${n === 1 ? "step" : "steps"}`].filter(Boolean).join(" · ");
+    const copy = el("div", "group-copy", el("span", "", g.who));
+    if (sub) copy.append(el("span", "", sub));
+    const li = el("li", "group", el("div", "group-head", orbOf(g.who), copy, el("time", "", ago(g.at))));
+    const rows = pressedKeys(g.steps);
+    const key = `${g.who}|${g.session}|${g.steps.at(-1).at}`;
+    const fold = rows.length > SHOWN_STEPS + 1 && !expanded.has(key);
+    li.append(...(fold ? rows.slice(0, SHOWN_STEPS) : rows).map(stepRow));
+    if (fold) {
+      const more = el("button", "", `Show ${rows.length - SHOWN_STEPS} earlier steps`);
+      more.addEventListener("click", () => { expanded.add(key); renderActivity(); });
+      li.append(el("div", "step more", more));
+    }
     return li;
   }));
-  $("activity-empty").hidden = view.activity.length > 0;
+  const empty = !items.length;
+  $("activity-empty").hidden = !empty;
+  if (empty) {
+    const [title, text] = filter === "asks" ? ["No asks yet", "When an agent needs you, it shows up here."]
+      : filter === "tab" ? ["Nothing in this tab yet", "What the agent in this tab does will show up here."]
+      : ["Nothing yet", "What your agents do will show up here."];
+    $("empty-title").textContent = title;
+    $("empty-text").textContent = text;
+  }
+  document.querySelectorAll("[data-filter]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.filter === filter)));
 };
+document.querySelectorAll("[data-filter]").forEach((b) => {
+  b.addEventListener("click", () => {
+    settings.filter = b.dataset.filter;
+    save();
+    if (view) renderActivity();
+  });
+});
 
 const clock = (ms) => {
   const s = Math.max(0, Math.ceil(ms / 1000));
@@ -374,33 +461,47 @@ const announce = () => {
   if (!view.locked) rfb?.focus({ preventScroll: true });
 };
 
+// With nobody at the wheel, the way in stays on screen.
+const renderTakeover = (working, turn) => {
+  if (view.locked && !working && !turn && view.mode !== "control") {
+    $("takeover-text").textContent = view.elsewhere ? "Nobody is using this tab" : "No agent is working right now";
+    $("takeover").hidden = false;
+  } else if (!poked) $("takeover").hidden = true;
+};
+
 const render = () => {
   if (!view) {
     $("who").textContent = "Reconnecting";
-    $("what").textContent = "";
+    $("who-note").textContent = "";
+    $("what").replaceChildren();
     return;
   }
   const { mode, turn, agent } = view;
   const working = agent && Date.now() - agent.at < WORKING_MS;
+  const last = view.activity[0];
+  const lastLine = () => {
+    if (!last) return "";
+    const frag = document.createDocumentFragment();
+    frag.append(`Last: ${last.who} `);
+    const said = phrase(last.text, true);
+    if (said.firstChild?.nodeType === Node.TEXT_NODE) said.firstChild.textContent = said.firstChild.textContent.replace(/^\w/, (c) => c.toLowerCase());
+    frag.append(said, `, ${ago(last.at).toLowerCase()}`);
+    return frag;
+  };
+  const say = (who, note, what) => {
+    $("who").textContent = who;
+    $("who-note").textContent = note ? ` · ${note}` : "";
+    $("what").replaceChildren(what || "");
+  };
   const orb = $("avatar");
   orb.className = `orb${turn ? " turn" : working ? " live" : ""}`;
   orb.dataset.agent = mode === "control" && !turn ? "you" : base(turn ? turn.agent : working ? agent.name : "");
-  if (turn) {
-    $("who").textContent = "Your turn";
-    $("what").textContent = "";
-  } else if (mode === "control") {
-    $("who").textContent = "You have control";
-    $("what").textContent = "Agents are waiting";
-  } else if (view.elsewhere) {
-    $("who").textContent = "Your tab";
-    $("what").textContent = "No agent is working here";
-  } else if (working) {
-    $("who").textContent = agent.name;
-    $("what").textContent = agent.text;
-  } else {
-    $("who").textContent = "Standing by";
-    $("what").textContent = "";
-  }
+  if (turn) say("Your turn");
+  else if (mode === "control") say("You're driving", "", view.sessions?.length ? "Agents wait until you release control" : "");
+  else if (view.elsewhere) say("Your tab", "idle", lastLine());
+  else if (working) say(agent.name, "", phrase(agent.text));
+  else say("Standing by", "", lastLine());
+  renderTakeover(working, turn);
   renderTurn();
   announce();
   renderPicker();
@@ -409,7 +510,9 @@ const render = () => {
   });
   document.body.classList.toggle("in-control", !view.locked);
   $("brave-down").hidden = !view.braveDown;
-  $("version").textContent = view.staleDays ? `· Brave is ${view.staleDays} days old. Run ridealong update` : `· ${view.version}`;
+  $("version").textContent = view.version;
+  $("stale").hidden = !view.staleDays;
+  $("stale").textContent = view.staleDays ? `· Brave is ${view.staleDays} days old. Run ridealong update` : "";
   renderActivity();
   renderRules();
   if (!turn) document.title = "Ridealong";
@@ -504,13 +607,15 @@ $("turn-block").addEventListener("click", () => answerTurn(true));
 
 // A click on a locked screen would otherwise do nothing and explain nothing.
 let takeoverTimer;
+let poked = false;
 $("screen").addEventListener("pointerdown", () => {
   if (!document.body.classList.contains("locked")) return;
   const name = view?.agent && Date.now() - view.agent.at < WORKING_MS ? view.agent.name : "";
   $("takeover-text").textContent = name ? `${name} is working` : "The screen is locked";
   $("takeover").hidden = false;
+  poked = true;
   clearTimeout(takeoverTimer);
-  takeoverTimer = setTimeout(() => { $("takeover").hidden = true; }, 5000);
+  takeoverTimer = setTimeout(() => { poked = false; render(); }, 5000);
 }, true);
 $("take-control").addEventListener("click", () => {
   $("takeover").hidden = true;
@@ -591,5 +696,17 @@ showAppearance();
 showPanel(settings.panel);
 showTab(settings.tab);
 setInterval(render, 5000);
+
+// The round trip to the server, so a slow picture can be told from a slow link.
+const ping = async () => {
+  if (document.hidden) return;
+  const start = performance.now();
+  try {
+    await fetch("/api/health", { cache: "no-store" });
+    $("ping").textContent = `${$("size").textContent ? " · " : ""}${Math.round(performance.now() - start)} ms`;
+  } catch { $("ping").textContent = ""; }
+};
+setInterval(ping, 10000);
+ping();
 listen();
 connect();
