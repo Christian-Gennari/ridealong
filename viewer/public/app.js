@@ -703,7 +703,7 @@ const ping = async () => {
   const start = performance.now();
   try {
     await fetch("/api/health", { cache: "no-store" });
-    $("ping").textContent = `${$("size").textContent ? " · " : ""}${Math.round(performance.now() - start)} ms`;
+    $("ping").textContent = `${Math.round(performance.now() - start)} ms`;
   } catch { $("ping").textContent = ""; }
 };
 setInterval(ping, 10000);
