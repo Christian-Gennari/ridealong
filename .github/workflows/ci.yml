@@ -16,6 +16,8 @@ jobs:
         working-directory: viewer
       - run: npm test
         working-directory: viewer
+      - name: Bridge
+        run: node --test mcp/test/*.test.mjs
       - name: Syntax
         run: |
           node --check mcp/ridealong-mcp.mjs

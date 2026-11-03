@@ -39,6 +39,10 @@ const expectAgentTab = (ms = AGENT_TAB_MS) => { agentTabsUntil = Date.now() + ms
 
 const ACTIVE_MS = 30000;
 const SESSION_LOST_MS = 35000; // no heartbeat for this long means the agent died
+// An agent client can keep a finished session alive for days, heartbeat and all.
+// After this long without doing anything it leaves the list; 0 keeps it there.
+const IDLE_HIDE_MS = Number(process.env.RIDEALONG_IDLE_HIDE_MIN ?? 15) * 60000;
+const listed = (x) => x.text && (!IDLE_HIDE_MS || Date.now() - x.at < IDLE_HIDE_MS || state.turns.some((t) => t.session === x.id));
 const active = () => [...sessions.values()].filter((x) => x.text && Date.now() - x.at < ACTIVE_MS);
 
 // One session owns the screen at a time, so parallel agents don't flip tabs.
@@ -84,10 +88,12 @@ const dropSession = (id, { closeItsTab = false } = {}) => {
   sessions.delete(id);
   state.turns = state.turns.filter((t) => t.session !== id);
 };
+let shownSessions = "";
 setInterval(() => {
   const lost = [...sessions.values()].filter((x) => Date.now() - x.seen > SESSION_LOST_MS);
   lost.forEach((x) => dropSession(x.id, { closeItsTab: true }));
-  if (lost.length) publish();
+  const shown = [...sessions.values()].filter(listed).map((x) => x.id).join();
+  if (lost.length || shown !== shownSessions) publish();
 }, 5000).unref();
 
 // Brave can freeze without exiting, and then nothing but a restart helps.
@@ -117,7 +123,7 @@ const view = () => {
   return {
     mode: state.mode, turn: state.turns[0] ?? null, waiting: Math.max(0, state.turns.length - 1),
     agent: current?.text ? { name: current.label, text: current.text, at: current.at } : null,
-    sessions: [...sessions.values()].filter((x) => x.text).map((x) => ({
+    sessions: [...sessions.values()].filter(listed).map((x) => ({
       id: x.id, label: x.label, followed: x.id === followed, text: x.text, at: x.at,
       needsYou: state.turns.some((t) => t.session === x.id),
     })),
@@ -130,6 +136,7 @@ const view = () => {
 };
 
 const publish = () => {
+  shownSessions = [...sessions.values()].filter(listed).map((x) => x.id).join();
   pickFollowed();
   activateTab();
   const frame = `data: ${JSON.stringify(view())}\n\n`;

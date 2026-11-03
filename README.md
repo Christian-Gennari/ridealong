@@ -100,6 +100,8 @@ The screen stays on one session rather than flipping between them. With two or m
 
 ![The sessions dropdown listing Claude, Codex and Gemini with what each is doing](docs/images/sessions.png)
 
+Agent clients often keep a session's connection open long after its work is done. After 15 minutes without a browser call, a session leaves the dropdown (unless it needs you). After 2 hours, Ridealong closes its tab and frees its place, but keeps the connection: if the agent comes back, it gets a new tab and a note that the old one was closed. Change the limits with `RIDEALONG_IDLE_HIDE_MIN` and `RIDEALONG_IDLE_RELEASE_MIN` in `~/.config/ridealong/config.env`, then run `ridealong up`. 0 turns either off.
+
 Isolation is per MCP connection. Subagents that share one connection also share one tab, so give browser work to one subagent at a time.
 
 ## Reaching the viewer
