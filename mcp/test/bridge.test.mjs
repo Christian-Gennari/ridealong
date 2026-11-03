@@ -1,7 +1,10 @@
 // Drives the real bridge over stdio, with a fake Playwright, viewer and browser.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import { createInterface } from "node:readline";
 import { after, test } from "node:test";
 
@@ -14,7 +17,7 @@ const servers = [];
 after(() => { bridges.forEach((b) => b.kill()); servers.forEach((s) => s.close()); });
 
 // Each bridge gets its own fake viewer and debugging port, which record every request.
-const startBridge = async (env) => {
+const startBridge = async (env, cwd) => {
   const seen = [];
   let nextSession = 0;
   const server = http.createServer((req, res) => {
@@ -38,6 +41,7 @@ const startBridge = async (env) => {
   const child = spawn(process.execPath, [BRIDGE, "--agent", "Claude", "--", process.execPath, FAKE], {
     env: { PATH: process.env.PATH, RIDEALONG_VIEWER: base, RIDEALONG_CDP: base, ...env },
     stdio: ["pipe", "pipe", "pipe"],
+    cwd,
   });
   bridges.push(child);
   const calls = [];
@@ -94,4 +98,14 @@ test("0 turns the release off", async () => {
   await bridge.call("browser_navigate", { url: "https://example.com" });
   await sleep(800);
   assert.equal(bridge.count("/api/session/end"), 0);
+});
+
+test("saved files point into the shared folder, whatever the client's root", async () => {
+  const shared = fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-files-"));
+  after(() => fs.rmSync(shared, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(shared, "page.yml"), "");
+  const bridge = await startBridge({}, shared);
+  const [text] = texts(await bridge.call("browser_snapshot", { saved: "page.yml" }));
+  const file = path.join(fs.realpathSync(shared), "page.yml");
+  assert.equal(text, `- [Snapshot](${file})\nSaved to "${file}"`);
 });

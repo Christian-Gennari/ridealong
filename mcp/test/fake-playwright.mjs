@@ -6,7 +6,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (msg.method !== "tools/call") return;
   const { name, arguments: args = {} } = msg.params;
   console.error(JSON.stringify({ call: name, action: args.action }));
-  const text = name === "browser_run_code_unsafe" ? '"ABCDEF0123456789ABCDEF0123456789"' : `did ${name}`;
+  const text = name === "browser_run_code_unsafe" ? '"ABCDEF0123456789ABCDEF0123456789"'
+    // Like Playwright with a client whose root is the shared folder's parent.
+    : name === "browser_snapshot" && args.saved ? `- [Snapshot](shared/${args.saved})\nSaved to "shared/${args.saved}"`
+    : `did ${name}`;
   const answer = () => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }] } }) + "\n");
   setTimeout(answer, name === "browser_wait_for" ? Number(args.time) * 1000 : 0);
 });
