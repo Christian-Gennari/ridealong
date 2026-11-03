@@ -23,6 +23,7 @@ const [cmd, ...cmdArgs] = argv.slice(split + 1);
 
 const PLAIN = process.env.RIDEALONG_PLAIN === "1";
 const HANDOVER_MINUTES = Number(process.env.RIDEALONG_HANDOVER_MINUTES || 10);
+const IDLE_RELEASE_MINUTES = Number(process.env.RIDEALONG_IDLE_RELEASE_MIN ?? 120);
 const GLIDE_MS = 450;
 const VIEWER = process.env.RIDEALONG_VIEWER || "http://127.0.0.1:6086";
 const VIEWER_TOKEN = process.env.VIEWER_TOKEN || "";
@@ -114,10 +115,12 @@ const register = () => (session ??= viewer("/api/session", { body: { agent: AGEN
 
 // The viewer forgets everyone when it restarts, so join again with the same tab.
 const heartbeat = async () => {
+  const id = sessionId;
   try {
-    await viewer("/api/session/beat", { body: { id: sessionId } });
+    await viewer("/api/session/beat", { body: { id } });
   } catch (e) {
-    if (e.message !== "viewer: 404") return;
+    // A release ended the session on purpose while this beat was on its way.
+    if (e.message !== "viewer: 404" || !id || id !== sessionId) return;
     session = null;
     await register();
   }
@@ -286,7 +289,64 @@ const refusal = async (name) => {
     : `${host} needs the human's approval, and nobody gave it. Ask them in chat.`;
 };
 
+// An agent client can keep a finished session's process, and so this bridge,
+// alive for days. After a long idle spell, give back the tab and the place in the
+// viewer but keep the connection: the next call joins again with a new tab.
+let lastCall = Date.now();
+let busy = 0;
+let releasing = null;
+let notice = null;
+const release = async () => {
+  const id = session;
+  const target = myTarget;
+  const hadTab = Boolean(ownTab);
+  clearInterval(beat);
+  beat = null;
+  session = null;
+  sessionId = null;
+  ownTab = null;
+  tabReady = false;
+  settled = false;
+  openTabs = 0;
+  myTarget = null;
+  if (hadTab) {
+    await keepBraveOpen();
+    // By id, because Playwright's current tab may be another session's by now.
+    if (target) await fetch(`${CDP}/json/close/${target}`, { signal: AbortSignal.timeout(1000) }).catch(() => {});
+    else await callChild({ name: "browser_tabs", arguments: { action: "close" } }, 1500).catch(() => {});
+  }
+  const ended = await id;
+  if (ended) await viewer("/api/session/end", { body: { id: ended } }).catch(() => {});
+  if (hadTab) notice = `Ridealong closed your old tab after ${IDLE_RELEASE_MINUTES} idle minutes. ` +
+    "You're in a new tab now: navigate again and take a new snapshot.";
+};
+const idleTooLong = () => (ownTab || session) && !busy && !releasing && Date.now() - lastCall >= IDLE_RELEASE_MINUTES * 60000;
+if (IDLE_RELEASE_MINUTES > 0 && !PLAIN) {
+  setInterval(() => {
+    if (idleTooLong()) releasing = release().finally(() => { releasing = null; });
+  }, Math.min(60000, IDLE_RELEASE_MINUTES * 15000)).unref();
+}
+
+// Tells the agent, once, in the first answer after a release.
+const withNotice = (answer) => {
+  if (!notice || !answer.result?.content) return answer;
+  answer.result.content.unshift({ type: "text", text: notice });
+  notice = null;
+  return answer;
+};
+
 const handleCall = async (msg) => {
+  busy += 1;
+  try {
+    await releasing;
+    return await handleToolCall(msg);
+  } finally {
+    busy -= 1;
+    lastCall = Date.now();
+  }
+};
+
+const handleToolCall = async (msg) => {
   const { name, arguments: args = {} } = msg.params;
 
   await noteLostTab();
@@ -332,7 +392,7 @@ const handleCall = async (msg) => {
     // A new tab's first load can pull it to the front, so ask for the screen back.
     if (!settled) { settled = true; await shareTarget(); }
   }
-  toClient({ ...answer, id: msg.id });
+  toClient(withNotice({ ...answer, id: msg.id }));
 };
 
 // Playwright reports files relative to its own folder, which means nothing to an
@@ -390,7 +450,7 @@ const prompt = (reason, extra, turnId) => {
   return { ...request, form: true, done: () => toClient({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: request.id, reason: "Answered in the viewer" } }) };
 };
 
-const reply = (msg, text) => toClient({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }] } });
+const reply = (msg, text) => toClient(withNotice({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }] } }));
 
 // Puts a request in front of the human and waits for the answer. Null means the
 // viewer couldn't be reached; { timedOut } means nobody answered.

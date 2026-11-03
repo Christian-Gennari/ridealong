@@ -120,6 +120,22 @@ test("sessions keep unique labels, and a lost one must rejoin", async () => {
   assert.equal((await a.call("/api/session/beat", { id: "nobody" })).status, 404);
 });
 
+test("idle sessions leave the list, unless they need you", async () => {
+  const idle = api(await start(16211, { RIDEALONG_IDLE_HIDE_MIN: "0.005" })); // 300 ms
+  const quiet = await idle.join("Claude");
+  const asking = await idle.join("Codex");
+  await idle.call("/api/activity", { session: quiet, text: "Reading" });
+  await idle.call("/api/activity", { session: asking, text: "Reading" });
+  assert.deepEqual((await idle.view()).sessions.map((s) => s.label), ["Claude", "Codex"]);
+  await idle.call("/api/handover", { session: asking, reason: "2FA code" });
+  await new Promise((r) => setTimeout(r, 400));
+  assert.deepEqual((await idle.view()).sessions.map((s) => s.label), ["Codex"]);
+  // Still a session: it can come back without joining again.
+  assert.equal((await idle.call("/api/session/beat", { id: quiet })).status, 200);
+  await idle.call("/api/activity", { session: quiet, text: "Clicking Save" });
+  assert.deepEqual((await idle.view()).sessions.map((s) => s.label), ["Claude", "Codex"]);
+});
+
 test("other origins can't change anything", async () => {
   const res = await raw(base, "/api/mode", { method: "POST", headers: { Origin: "https://evil.example" }, body: '{"mode":"control"}' });
   assert.equal(res.status, 403);
