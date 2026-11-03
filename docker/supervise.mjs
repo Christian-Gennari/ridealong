@@ -62,14 +62,17 @@ const waitForDisplay = async () => {
 };
 
 const SERVICES = [
-  { name: "display", cmd: "Xvfb", args: [":99", "-screen", "0", `${RESOLUTION}x24`, "-nolisten", "tcp", "-noreset"],
+  { name: "display", cmd: "Xvfb", args: [":99", "-screen", "0", `${RESOLUTION}x24`, "-nolisten", "tcp", "-noreset", "-br"],
     before: () => { fs.rmSync("/tmp/.X99-lock", { force: true }); fs.rmSync(SOCKET, { force: true }); } },
   { name: "windows", display: true, cmd: "matchbox-window-manager", args: ["-use_titlebar", "no"] },
   { name: "vnc", display: true, cmd: "x11vnc", args: ["-display", ":99", "-forever", "-shared", "-localhost", "-rfbport", "5900", "-nopw", "-quiet"] },
   { name: "viewer", cmd: "node", args: ["/app/viewer/server.mjs"] },
   { name: "brave", display: true, before: prepareProfile, cmd: "brave-browser", args: [
     `--user-data-dir=${PROFILE}`, "--remote-debugging-port=9222", "--password-store=basic",
-    "--no-first-run", "--no-default-browser-check", "--start-maximized",
+    "--no-first-run", "--no-default-browser-check",
+    // Not --start-maximized: under matchbox it leaves the window 1px short, and the
+    // white root window shows as a line on the right and bottom of the viewer.
+    "--window-position=0,0", `--window-size=${RESOLUTION.replace("x", ",")}`,
     "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows",
     "--load-extension=/app/ridealong-cursor",
     // There's no GPU or GLX here: WebGL runs on the renderer Brave ships with.
