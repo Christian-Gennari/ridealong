@@ -8,6 +8,7 @@
 //
 // RIDEALONG_PLAIN=1 turns all of it off and forwards everything untouched.
 import { spawn } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
@@ -395,14 +396,25 @@ const handleToolCall = async (msg) => {
   toClient(withNotice({ ...answer, id: msg.id }));
 };
 
-// Playwright reports files relative to its own folder, which means nothing to an
-// agent outside the container. The shared folder has the same path on both sides.
+// Playwright reports files relative to the client's workspace root, which means
+// nothing to an agent outside the container. Files land in the shared folder (our
+// working directory, with the same path on both sides), so drop leading folders
+// until the path names a file that's there: "ridealong-files/page.yml" from a root
+// of /home/dev is page.yml here.
+const absolute = (file) => {
+  const parts = file.split("/");
+  for (let i = 0; i < parts.length; i += 1) {
+    const candidate = path.resolve(...parts.slice(i));
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return path.resolve(file);
+};
 const absolutePaths = (answer) => {
   for (const part of answer.result?.content ?? []) {
     if (part.type !== "text") continue;
     part.text = part.text
-      .replace(/\]\((?![a-z]+:|\/)([^)\s]+)\)/g, (_, file) => `](${path.resolve(file)})`)
-      .replace(/ to "(?!\/)([^"]+)"/g, (_, file) => ` to "${path.resolve(file)}"`);
+      .replace(/\]\((?![a-z]+:|\/)([^)\s]+)\)/g, (_, file) => `](${absolute(file)})`)
+      .replace(/ to "(?!\/)([^"]+)"/g, (_, file) => ` to "${absolute(file)}"`);
   }
   return answer;
 };
