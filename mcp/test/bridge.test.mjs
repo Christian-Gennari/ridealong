@@ -109,3 +109,38 @@ test("saved files point into the shared folder, whatever the client's root", asy
   const file = path.join(fs.realpathSync(shared), "page.yml");
   assert.equal(text, `- [Snapshot](${file})\nSaved to "${file}"`);
 });
+
+const sharedFolder = () => {
+  const shared = fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-files-"));
+  after(() => fs.rmSync(shared, { recursive: true, force: true }));
+  return shared;
+};
+
+test("a URL in an error is never rewritten as a file path", async () => {
+  const shared = sharedFolder();
+  const bridge = await startBridge({}, shared);
+  const url = "http://fixtures:8080/failed?name=report.csv";
+  const answer = await bridge.call("browser_navigate", { url });
+  const [text] = texts(answer);
+  assert.equal(answer.result.isError, true);
+  assert.ok(text.includes(`navigating to "${url}"`), text);
+  assert.ok(!text.includes(shared) && !text.includes(fs.realpathSync(shared)));
+});
+
+test("a navigation that turns into a download names the saved file", async () => {
+  const shared = sharedFolder();
+  fs.writeFileSync(path.join(shared, "old.csv"), "");
+  const bridge = await startBridge({}, shared);
+  const answer = await bridge.call("browser_navigate", { url: "http://fixtures:8080/download?name=report.csv" });
+  const [text] = texts(answer);
+  assert.notEqual(answer.result.isError, true);
+  assert.equal(text, `Download started. Saved file: ${path.join(fs.realpathSync(shared), "report.csv")}`);
+});
+
+test("two new files during a download: the answer says it is not sure", async () => {
+  const shared = sharedFolder();
+  const bridge = await startBridge({}, shared);
+  const [text] = texts(await bridge.call("browser_navigate", { url: "http://fixtures:8080/download?name=a.csv&also=b.csv" }));
+  assert.match(text, /not sure which one is yours/);
+  assert.ok(text.includes("a.csv") && text.includes("b.csv"), text);
+});

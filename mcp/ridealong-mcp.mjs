@@ -382,7 +382,9 @@ const handleToolCall = async (msg) => {
   const shot = name === "browser_take_screenshot";
   if (shot) await overlay({ cmd: "hide" });
   if (name === "browser_tabs" && args.action === "close") await keepBraveOpen();
+  const before = listFiles();
   const answer = absolutePaths(await callChild(params));
+  await noteDownload(answer, before);
   if (shot) await overlay({ cmd: "show" });
   if (name === "browser_tabs" && args.action === "new") openTabs += 1;
   if (name === "browser_tabs" && args.action === "close") closedTab();
@@ -414,9 +416,46 @@ const absolutePaths = (answer) => {
     if (part.type !== "text") continue;
     part.text = part.text
       .replace(/\]\((?![a-z]+:|\/)([^)\s]+)\)/g, (_, file) => `](${absolute(file)})`)
-      .replace(/ to "(?!\/)([^"]+)"/g, (_, file) => ` to "${absolute(file)}"`);
+      // Never a URL ("navigating to "http://…""): only plain relative paths.
+      .replace(/ to "(?!\/|[a-z][a-z0-9+.-]*:)([^"]+)"/gi, (_, file) => ` to "${absolute(file)}"`);
   }
   return answer;
+};
+
+// Playwright answers a navigation that turns into a download with an error and
+// never says where the file went. Name the files that appeared in the shared folder
+// during the call. Another session's download can land in the same window, so with
+// more than one new file we say we are not sure which one is ours.
+const listFiles = () => {
+  const files = new Map();
+  try {
+    for (const entry of fs.readdirSync(".", { withFileTypes: true })) {
+      if (entry.isFile()) files.set(entry.name, fs.statSync(entry.name).mtimeMs);
+    }
+  } catch { /* the folder is not readable: no names to give */ }
+  return files;
+};
+const newFiles = (before) => [...listFiles()].filter(([name, mtime]) => before.get(name) !== mtime).map(([name]) => path.resolve(name));
+const DOWNLOAD_MS = Number(process.env.RIDEALONG_DOWNLOAD_MS) || 5000;
+const noteDownload = async (answer, before) => {
+  const parts = (answer.result?.content ?? []).filter((part) => part.type === "text");
+  if (!parts.some((part) => /Download is starting|Downloading file/.test(part.text))) return;
+  // The file is saved after the call returns, so give it a moment to appear.
+  let files = newFiles(before);
+  for (let waited = 0; !files.length && waited < DOWNLOAD_MS; waited += 250) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    files = newFiles(before);
+  }
+  const note = !files.length ? `A download started, but no file has appeared in ${FILES} yet. Look there again in a few seconds.`
+    : files.length === 1 ? `Download started. Saved file: ${files[0]}`
+    : `Download started. ${files.length} new files appeared in ${FILES} while it ran, so I am not sure which one is yours: ${files.join(", ")}`;
+  // A download is not a failure, so drop Playwright's error and keep the note.
+  if (answer.result.isError && parts.some((part) => /Download is starting/.test(part.text))) {
+    answer.result.isError = false;
+    answer.result.content = [{ type: "text", text: note }];
+  } else {
+    answer.result.content.push({ type: "text", text: note });
+  }
 };
 
 // The client can raise its own prompt too, so a request isn't missed when the
