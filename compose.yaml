@@ -3,7 +3,7 @@
 name: ridealong
 services:
   ridealong:
-    container_name: ridealong
+    container_name: ${RIDEALONG_NAME:-ridealong}
     image: ${RIDEALONG_IMAGE:-ghcr.io/christian-gennari/ridealong:latest}
     build:
       context: .
