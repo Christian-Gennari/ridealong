@@ -118,6 +118,10 @@ const BRAVE_STALE_DAYS = 14;
 const imageAge = () => (Date.now() / 1000 - Number(process.env.RIDEALONG_BUILT || Date.now() / 1000)) / 86400;
 
 const canAct = () => state.mode !== "control";
+// Control holds the session on screen. With nobody on screen it holds all of them.
+const held = (session) => state.mode === "control" && (!session || followed === null || followed === session);
+// Where a waiting agent stands: at the front its limit runs, behind it nothing does.
+const place = (turn) => turn === state.turns[0] ? { front: true, left: Math.max(0, turn.deadline - Date.now()) } : { front: false, left: null };
 const locked = () => state.mode === "watch" || (state.mode === "auto" && !state.turns.length);
 const view = () => {
   const current = sessions.get(followed);
@@ -136,7 +140,14 @@ const view = () => {
   };
 };
 
+// A turn's time limit counts from when it comes forward, not from when it was asked.
+const startFront = () => {
+  const turn = state.turns[0];
+  if (turn && !turn.deadline) turn.deadline = Date.now() + turn.limit;
+};
+
 const publish = () => {
+  startFront();
   shownSessions = [...sessions.values()].filter(listed).map((x) => x.id).join();
   pickFollowed();
   activateTab();
@@ -323,9 +334,10 @@ const api = {
     publish();
     json(res, 200, { hosts: rules });
   },
-  "GET /api/gate": async (req, res) => {
-    if (!canAct()) await nextChange();
-    json(res, 200, { go: canAct() });
+  "GET /api/gate": async (req, res, url) => {
+    const session = url.searchParams.get("session");
+    if (held(session)) await nextChange();
+    json(res, 200, { go: !held(session) });
   },
   "POST /api/session": async (req, res) => {
     const { agent, label: wanted, text, target } = await readBody(req);
@@ -405,7 +417,7 @@ const api = {
     const current = sessions.get(session);
     if (!current) return json(res, 404, {});
     const at = Date.now();
-    const turn = { id: ++nextTurn, session, agent: current.label, reason: clip(reason, 140), at, deadline: at + (Number(minutes) || 10) * 60000,
+    const turn = { id: ++nextTurn, session, agent: current.label, reason: clip(reason, 140), at, limit: (Number(minutes) || 10) * 60000, deadline: null,
       kind: kind === "approval" ? "approval" : "handover", host: clip(host, 80) };
     state.turns.push(turn);
     current.text = "Waiting for you";
@@ -414,13 +426,14 @@ const api = {
     notify(turn);
     pushTurn(turn);
     publish();
-    json(res, 200, { id: turn.id });
+    json(res, 200, { id: turn.id, ...place(turn) });
   },
   "GET /api/handover/wait": async (req, res, url) => {
     const id = Number(url.searchParams.get("id"));
     if (state.turns.some((t) => t.id === id)) await nextChange();
     const open = state.turns.some((t) => t.id === id);
-    json(res, 200, { done: answered.has(id), blocked: answered.get(id) === true, lost: !open && !answered.has(id) });
+    const turn = state.turns.find((t) => t.id === id);
+    json(res, 200, { done: answered.has(id), blocked: answered.get(id) === true, lost: !open && !answered.has(id), ...(turn ? place(turn) : {}) });
   },
   "POST /api/handover/cancel": async (req, res) => {
     const { id } = await readBody(req);

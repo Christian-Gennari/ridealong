@@ -62,9 +62,9 @@ Moving from an older install that ran directly on the server? Run `./ridealong m
 |---|---|
 | **Auto** | Locked while agents work, so a stray click can't disturb them. Unlocks when one asks for you, and locks again when you hand back. |
 | **Watch** | Always locked. If an agent asks for you, the viewer offers to unlock. |
-| **Control** | The browser is yours, and agents wait until you release it. |
+| **Control** | The browser is yours. The agent whose tab you are looking at waits until you release it; other agents keep working in their own tabs. |
 
-Want to step in while an agent is working? Press **Control**, or click the screen and choose **Take control**. The agent finishes its current action and waits until you release it.
+Want to step in while an agent is working? Press **Control**, or click the screen and choose **Take control**. The agent whose session is on screen finishes its current action and waits until you release it. Other agents keep working. Click another session's tab and that one waits instead.
 
 When an agent needs you, the whole viewer floods with that agent's colour and says **Your turn**, with the reason and how long it will wait. The browser stays clear in the middle and takes your keyboard straight away. Do what it asks and press **Hand back**.
 
@@ -96,7 +96,7 @@ Rules protect the page in front of the agent. They can't stop a script on anothe
 
 Every agent session gets its own window (one tab in it to start with) and its own label (Claude, Claude 2, and so on), so sessions can work at the same time without touching each other's pages. They share one browser profile, so they also share logins. A window that isn't on screen keeps working, because a hidden tab in a shared window would get no clicks or key presses. A tab a session opens with `browser_tabs` new gets a window of its own too. The tabs are grouped by session and close when the session ends. Ridealong tracks each session's tabs by id, so if an agent opens and closes tabs, its next call still lands in one of its own tabs, and ending the session closes exactly the tabs it opened. The tab list an agent sees (the "Open tabs" block and `browser_tabs`) shows only its own tabs, numbered from 0. `select` and `close` use those numbers, and a number outside the list is refused. Pages that its tabs open (`target=_blank`, `window.open`) belong to the session and close with it. The viewer gives each tab to one session only, so sessions that open tabs at the same moment can't take the same one.
 
-The screen stays on one session rather than flipping between them. With two or more running, the **sessions** dropdown in the top bar shows what each one is doing and which one needs you. Pick one to watch it, or in Control mode click its tab in Brave: the two always stay in sync. If several sessions need you, their requests queue, and each comes forward in turn.
+The screen stays on one session rather than flipping between them. With two or more running, the **sessions** dropdown in the top bar shows what each one is doing and which one needs you. Pick one to watch it, or in Control mode click its tab in Brave: the two always stay in sync. If several sessions need you, their requests queue, and each comes forward in turn. An agent's time limit starts when its request comes forward, not when it asked, and a queued agent keeps waiting (up to three times the limit in total).
 
 ![The sessions dropdown listing Claude, Codex and Gemini with what each is doing](docs/images/sessions.png)
 
