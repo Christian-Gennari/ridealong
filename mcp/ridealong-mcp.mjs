@@ -103,13 +103,16 @@ let sessionId = null;
 let label = AGENT;
 let beat = null;
 let tabReady = false;
+// Every tab this session opened, by CDP target id. myTarget is the one the viewer
+// shows. Playwright's "current" page can be any session's, so these ids decide.
+const ownTargets = new Set();
 let myTarget = null;
 const register = () => (session ??= viewer("/api/session", { body: { agent: AGENT } })
   .then((r) => {
     label = r.label;
     sessionId = r.id;
     beat ??= setInterval(heartbeat, 10000).unref();
-    if (tabReady) shareTarget();
+    if (tabReady) announce();
     return r.id;
   })
   .catch(() => { session = null; return null; }));
@@ -134,14 +137,53 @@ const TARGET_CODE = `async (page) => {
   await cdp.detach();
   return targetInfo.targetId;
 }`;
-const shareTarget = async () => {
+const announce = async () => {
+  const id = await session;
+  if (id && myTarget) await viewer("/api/session/target", { body: { id, target: myTarget } }).catch(() => {});
+};
+const idsIn = (r) => JSON.stringify(r?.result ?? "").match(/\b[0-9A-F]{32}\b/g) ?? [];
+const currentTarget = async () => idsIn(await callChild({ name: "browser_run_code_unsafe", arguments: { code: TARGET_CODE } }, 2000).catch(() => null))[0] ?? null;
+// With adopt, Playwright's current page is a tab we just opened. Without it, we
+// only announce a current page that is already ours.
+const shareTarget = async (adopt) => {
   const id = await session;
   if (!id) return;
-  const r = await callChild({ name: "browser_run_code_unsafe", arguments: { code: TARGET_CODE } }, 2000).catch(() => null);
-  const target = JSON.stringify(r?.result ?? "").match(/\b[0-9A-F]{32}\b/)?.[0];
-  if (!target) return;
+  const target = await currentTarget();
+  if (!target || !(adopt || ownTargets.has(target))) return;
+  ownTargets.add(target);
   myTarget = target;
-  await viewer("/api/session/target", { body: { id, target } }).catch(() => {});
+  await announce();
+};
+
+// Every page in the shared browser, in the order Playwright numbers its tabs.
+const ALL_TARGETS_CODE = `async (page) => {
+  const ids = [];
+  for (const p of page.context().pages()) {
+    const cdp = await p.context().newCDPSession(p);
+    ids.push((await cdp.send("Target.getTargetInfo")).targetInfo.targetId);
+    await cdp.detach();
+  }
+  return ids;
+}`;
+
+// Before each call, make Playwright's current page one of ours. selectTab brings
+// the tab to the front, so announce afterwards to give the viewer's screen back.
+const pinTab = async () => {
+  if (!ownTargets.size) return;
+  const now = await currentTarget();
+  if (!now || ownTargets.has(now)) return;
+  const all = idsIn(await callChild({ name: "browser_run_code_unsafe", arguments: { code: ALL_TARGETS_CODE } }, 4000).catch(() => null));
+  if (!all.length) return;
+  for (const id of ownTargets) if (!all.includes(id)) ownTargets.delete(id);
+  if (!ownTargets.size) {
+    resetTabState();
+    await claimTab();
+    return;
+  }
+  if (!ownTargets.has(myTarget)) myTarget = [...ownTargets].pop();
+  await callChild({ name: "browser_tabs", arguments: { action: "select", index: all.indexOf(myTarget) } }, 3000).catch(() => {});
+  if ((await currentTarget()) !== myTarget) throw new Error("Couldn't get back to your own tab, so this was refused. Try again.");
+  await announce();
 };
 
 const pages = async () => {
@@ -152,36 +194,42 @@ const pages = async () => {
 // Brave restarted or someone closed our tab. Without our own tab, this session
 // would land in whichever tab Playwright picks, which may be another session's.
 const noteLostTab = async () => {
-  if (!myTarget) return;
+  if (!ownTargets.size) return;
   const open = await pages().catch(() => null);
-  if (!open || open.some((t) => t.id === myTarget)) return;
-  myTarget = null;
-  openTabs = 1;
-  closedTab();
+  if (!open) return;
+  for (const id of ownTargets) if (!open.some((t) => t.id === id)) ownTargets.delete(id);
+  if (!ownTargets.has(myTarget)) myTarget = [...ownTargets].pop() ?? null;
+  if (!ownTargets.size) resetTabState();
 };
 
-// Closing the last tab would quit Brave for everyone.
-const keepBraveOpen = async () => {
+// Closing the last tab would quit Brave for everyone. Without ids, one tab is closing.
+const keepBraveOpen = async (closing) => {
   const open = await pages().catch(() => null);
-  if (open?.length === 1) await fetch(`${CDP}/json/new`, { method: "PUT", signal: AbortSignal.timeout(1000) }).catch(() => {});
+  if (open?.length && (closing ? open.every((t) => closing.includes(t.id)) : open.length === 1)) await fetch(`${CDP}/json/new`, { method: "PUT", signal: AbortSignal.timeout(1000) }).catch(() => {});
 };
 
 let ownTab = null;
-let openTabs = 0;
 let settled = false;
 const claimTab = () => (ownTab ??= register()
   .then(() => callChild({ name: "browser_tabs", arguments: { action: "new" } }))
-  .then(() => { tabReady = true; openTabs = 1; return shareTarget(); })
+  .then(() => { tabReady = true; return shareTarget(true); })
   .catch(() => {}));
 
 // With our last tab gone, Playwright's current tab is some other session's, and
 // the next navigation would take it over. So the next call opens a new one.
-const closedTab = () => {
-  openTabs = Math.max(0, openTabs - 1);
-  if (openTabs) return;
+const resetTabState = () => {
+  ownTargets.clear();
+  myTarget = null;
   ownTab = null;
   tabReady = false;
   settled = false;
+};
+
+// Closes our tabs by id over CDP: Playwright's "current" tab may be another session's.
+const closeOwnTabs = async (ids) => {
+  if (!ids.length) return;
+  await keepBraveOpen(ids);
+  await Promise.all(ids.map((id) => fetch(`${CDP}/json/close/${id}`, { signal: AbortSignal.timeout(1000) }).catch(() => {})));
 };
 
 const report = async (text, quiet) => {
@@ -299,23 +347,14 @@ let releasing = null;
 let notice = null;
 const release = async () => {
   const id = session;
-  const target = myTarget;
+  const ids = [...ownTargets];
   const hadTab = Boolean(ownTab);
   clearInterval(beat);
   beat = null;
   session = null;
   sessionId = null;
-  ownTab = null;
-  tabReady = false;
-  settled = false;
-  openTabs = 0;
-  myTarget = null;
-  if (hadTab) {
-    await keepBraveOpen();
-    // By id, because Playwright's current tab may be another session's by now.
-    if (target) await fetch(`${CDP}/json/close/${target}`, { signal: AbortSignal.timeout(1000) }).catch(() => {});
-    else await callChild({ name: "browser_tabs", arguments: { action: "close" } }, 1500).catch(() => {});
-  }
+  resetTabState();
+  if (hadTab) await closeOwnTabs(ids);
   const ended = await id;
   if (ended) await viewer("/api/session/end", { body: { id: ended } }).catch(() => {});
   if (hadTab) notice = `Ridealong closed your old tab after ${IDLE_RELEASE_MINUTES} idle minutes. ` +
@@ -355,9 +394,9 @@ const handleToolCall = async (msg) => {
   // Playwright's own version drops the shared browser connection.
   if (name === "browser_close") {
     if (ownTab) {
-      await keepBraveOpen();
-      await callChild({ name: "browser_tabs", arguments: { action: "close" } }, 5000).catch(() => {});
-      closedTab();
+      const ids = [...ownTargets];
+      resetTabState();
+      await closeOwnTabs(ids);
     }
     return reply(msg, "Closed your tab. Your next browser call opens a new one.");
   }
@@ -366,6 +405,7 @@ const handleToolCall = async (msg) => {
     return reply(msg, "The human still has control of the browser. Ask them in chat before trying again.");
   }
   await claimTab();
+  await pinTab();
   const refused = await refusal(name);
   if (refused) return reply(msg, refused);
   const text = LABELS[name]?.(args);
@@ -384,14 +424,20 @@ const handleToolCall = async (msg) => {
   if (name === "browser_tabs" && args.action === "close") await keepBraveOpen();
   const answer = absolutePaths(await callChild(params));
   if (shot) await overlay({ cmd: "show" });
-  if (name === "browser_tabs" && args.action === "new") openTabs += 1;
-  if (name === "browser_tabs" && args.action === "close") closedTab();
-  if (name === "browser_tabs" && args.action !== "list" && ownTab) await shareTarget();
+  if (name === "browser_tabs" && args.action !== "list" && ownTab) {
+    if (args.action === "new") await shareTarget(true);
+    else {
+      // A close leaves Playwright on any session's tab, so move back to one of ours.
+      await noteLostTab();
+      await pinTab().catch(() => {});
+      await announce();
+    }
+  }
   // A navigation replaces the page that just heard from us, so introduce ourselves again.
   if (text && name === "browser_navigate") {
     await overlay({ cmd: "status", text });
     // A new tab's first load can pull it to the front, so ask for the screen back.
-    if (!settled) { settled = true; await shareTarget(); }
+    if (!settled) { settled = true; await announce(); }
   }
   toClient(withNotice({ ...answer, id: msg.id }));
 };
@@ -520,9 +566,8 @@ async function finish() {
   if (finishing) return;
   finishing = true;
   const id = await session;
-  if (ownTab) await keepBraveOpen();
   await Promise.allSettled([
-    ownTab ? callChild({ name: "browser_tabs", arguments: { action: "close" } }, 1500) : null,
+    ownTab ? closeOwnTabs([...ownTargets]) : null,
     id ? viewer("/api/session/end", { body: { id } }) : null,
   ]);
   child.stdin.end();
