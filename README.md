@@ -142,6 +142,8 @@ Tools configured with JSON, like Cursor and Claude Desktop, use this:
 
 `--agent` is the name you'll see in the viewer. Clients receive the usage rules when they connect. If your client has a tool timeout, set it above 11 minutes, because `browser_handover` waits up to 10 for you. `ridealong connect` does this for Codex and Hermes.
 
+`codex exec` (headless Codex) fails every call with "MCP tool call requires approval" unless the server has `default_tools_approval_mode = "approve"` under `[mcp_servers.ridealong]` in `~/.codex/config.toml`. `ridealong connect` sets it. If you registered Codex by hand, add that line.
+
 The ChatGPT web and desktop apps can't use it: they only connect to remote MCP servers, and this one shouldn't be exposed to the internet. Use Codex instead.
 
 ## Files and localhost

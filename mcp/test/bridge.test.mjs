@@ -17,8 +17,9 @@ const servers = [];
 after(() => { bridges.forEach((b) => b.kill()); servers.forEach((s) => s.close()); });
 
 // Each bridge gets its own fake viewer and debugging port, which record every request.
-const startBridge = async (env, cwd) => {
+const startBridge = async (env, cwd, hooks = {}) => {
   const seen = [];
+  let handovers = 0;
   let nextSession = 0;
   const server = http.createServer((req, res) => {
     let body = "";
@@ -29,8 +30,10 @@ const startBridge = async (env, cwd) => {
       const send = (o) => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(o)); };
       if (path === "/api/session") return send({ id: String(++nextSession), label: "Claude" });
       if (path === "/api/gate") return send({ go: true });
-      if (path === "/api/rules") return send({ hosts: [] });
-      if (path === "/json/list") return send([{ id: TARGET, type: "page" }, { id: "OTHER", type: "page" }]);
+      if (path === "/api/rules") return send({ hosts: hooks.rules ?? [] });
+      if (path === "/api/handover") return send({ id: "h" + ++handovers });
+      if (path === "/api/handover/wait") return send({ done: true, blocked: hooks.block });
+      if (path === "/json/list") return send(hooks.pages ?? [{ id: TARGET, type: "page" }, { id: "OTHER", type: "page" }]);
       send({});
     });
   });
@@ -83,6 +86,35 @@ test("an idle session gives back its tab and joins again on the next call", asyn
   assert.equal(bridge.calls.filter((c) => c.call === "browser_tabs" && c.action === "new").length, 2);
   // The note comes once.
   assert.deepEqual(texts(await bridge.call("browser_snapshot")), ["did browser_snapshot"]);
+});
+
+test("a lost tab gets a one-line notice on the next answer", async () => {
+  const hooks = {};
+  const bridge = await startBridge({}, undefined, hooks);
+  await bridge.call("browser_navigate", { url: "https://example.com" });
+  hooks.pages = [{ id: "OTHER", type: "page" }]; // Brave restarted
+  const [note, answer] = texts(await bridge.call("browser_snapshot"));
+  assert.match(note, /Your tab was closed .*navigate again/);
+  assert.equal(answer, "did browser_snapshot");
+  hooks.pages = undefined; // the new tab exists
+  assert.deepEqual(texts(await bridge.call("browser_snapshot")), ["did browser_snapshot"]);
+});
+
+test("run_code names the sites with rules", async () => {
+  const bridge = await startBridge({}, undefined, { rules: ["secure.example", "bank.example"] });
+  const [text] = texts(await bridge.call("browser_run_code_unsafe", { code: "x" }));
+  assert.match(text, /every site/);
+  assert.match(text, /secure\.example, bank\.example/);
+});
+
+test("a block is remembered for the session and host, without asking again", async () => {
+  const bridge = await startBridge({}, undefined, { rules: ["secure.example"], block: true });
+  const first = texts(await bridge.call("browser_click", { target: "e1" }));
+  assert.match(first[0], /human blocked this on secure\.example/);
+  assert.equal(bridge.count("/api/handover"), 1);
+  const second = texts(await bridge.call("browser_click", { target: "e1" }));
+  assert.match(second[0], /human blocked this on secure\.example/);
+  assert.equal(bridge.count("/api/handover"), 1, "no second question");
 });
 
 test("a session isn't released while a call is still running", async () => {

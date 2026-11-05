@@ -40,7 +40,8 @@ const INSTRUCTIONS = "This is a real, logged-in browser shared with other agent 
   "If the human takes control, your browser tools wait until they release it. That isn't an error. " +
   `Brave runs in a container and shares only ${FILES} with you: put files there to upload them, and find downloads there. ` +
   (process.env.RIDEALONG_HOST_NETWORK === "1" ? "" : "localhost in this browser is the container, not the server. ") +
-  "Some sites need the human's approval before you click or type on them: your tool call waits for their answer.";
+  "Some sites need the human's approval before you click or type on them: your tool call waits for their answer. " +
+  "All sessions share one browser profile, so cookies and logins are shared: another session may already be signed in, and signing out signs out everyone.";
 
 const HANDOVER_TOOL = {
   name: "browser_handover",
@@ -158,6 +159,7 @@ const noteLostTab = async () => {
   myTarget = null;
   openTabs = 1;
   closedTab();
+  notice = "Your tab was closed (Brave restarted or the tab was closed). You're in a new tab: navigate again.";
 };
 
 // Closing the last tab would quit Brave for everyone.
@@ -257,6 +259,8 @@ const ACTING = new Set(["browser_click", "browser_type", "browser_fill_form", "b
 const APPROVAL_MS = 10 * 60000;
 let rules = [];
 const approved = new Map();
+// Hosts the human blocked for this session, kept as long as an approval is.
+const blocked = new Map();
 
 const protectedHost = (url) => {
   let host;
@@ -267,11 +271,14 @@ const protectedHost = (url) => {
 // The hard stop behind per-site rules: this runs in here, not in the agent or
 // the page, so nothing on a page can talk its way past it. Returns why a call is
 // refused. A viewer that's gone counts as a no.
+const blockedText = (host) => `The human blocked this on ${host}. Don't try again on this site. Ask them in chat.`;
 const refusal = async (name) => {
   rules = await viewer("/api/rules").then((r) => r.hosts).catch(() => rules);
   if (!rules.length) return null;
   // Arbitrary code could navigate to a protected site and act in one call.
-  if (name === "browser_run_code_unsafe") return "browser_run_code_unsafe is turned off while site rules are set. Use the other browser tools.";
+  if (name === "browser_run_code_unsafe") {
+    return `browser_run_code_unsafe is turned off for every site while any site rule exists. Rules are set for: ${rules.join(", ")}. Use the other browser tools.`;
+  }
   if (!ACTING.has(name)) return null;
   const answer = await callChild({ name: "browser_run_code_unsafe", arguments: { code: "async (page) => page.url()" } }, 3000).catch(() => null);
   if (!answer) return "Couldn't check which site this tab is on, so this was refused. Try again.";
@@ -279,15 +286,18 @@ const refusal = async (name) => {
   if (!url) return null;
   const host = protectedHost(url);
   if (!host || (approved.get(host) ?? 0) > Date.now()) return null;
+  if ((blocked.get(host) ?? 0) > Date.now()) return blockedText(host);
   await overlay({ cmd: "status", text: `Asking to act on ${host}` });
   const result = await ask(`Wants to act on ${host}`, { kind: "approval", host });
   if (result?.done && !result.blocked) {
     approved.set(host, Date.now() + APPROVAL_MS);
     return null;
   }
-  return result?.blocked
-    ? `The human blocked this on ${host}. Don't try again on this site. Ask them in chat.`
-    : `${host} needs the human's approval, and nobody gave it. Ask them in chat.`;
+  if (result?.blocked) {
+    blocked.set(host, Date.now() + APPROVAL_MS);
+    return blockedText(host);
+  }
+  return `${host} needs the human's approval, and nobody gave it. Ask them in chat.`;
 };
 
 // An agent client can keep a finished session's process, and so this bridge,

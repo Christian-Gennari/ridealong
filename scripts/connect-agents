@@ -57,11 +57,12 @@ if command -v codex >/dev/null; then
   codex mcp remove ridealong >/dev/null 2>&1 || true
   codex mcp add ridealong -- "$BIN" mcp --agent Codex
   # Codex gives up on a tool after 60 seconds, and a handover can wait 10 minutes.
+  # `codex exec` has no one to approve a tool call, so it needs approve mode too.
   python3 - "$HOME/.codex/config.toml" <<'PY'
 import re, sys
 path = sys.argv[1]
 s = open(path).read()
-s = re.sub(r"^(\[mcp_servers\.ridealong\]\n)", r"\1tool_timeout_sec = 660\n", s, count=1, flags=re.M)
+s = re.sub(r"^(\[mcp_servers\.ridealong\]\n)", r'\1tool_timeout_sec = 660\ndefault_tools_approval_mode = "approve"\n', s, count=1, flags=re.M)
 open(path, "w").write(s)
 PY
   echo "Codex: registered"

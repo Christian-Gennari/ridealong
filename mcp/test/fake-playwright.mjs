@@ -6,7 +6,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (msg.method !== "tools/call") return;
   const { name, arguments: args = {} } = msg.params;
   console.error(JSON.stringify({ call: name, action: args.action }));
-  const text = name === "browser_run_code_unsafe" ? '"ABCDEF0123456789ABCDEF0123456789"'
+  const text = name === "browser_run_code_unsafe" && String(args.code).includes("page.url()") ? '"https://secure.example/"'
+    : name === "browser_run_code_unsafe" ? '"ABCDEF0123456789ABCDEF0123456789"'
     // Like Playwright with a client whose root is the shared folder's parent.
     : name === "browser_snapshot" && args.saved ? `- [Snapshot](shared/${args.saved})\nSaved to "shared/${args.saved}"`
     : `did ${name}`;
