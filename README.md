@@ -74,7 +74,7 @@ Your agent's app hears about it too: Claude Code, and any client that supports M
 
 To hear about it with no viewer open at all, press **Turn on** when the viewer offers notifications, once on each device you use. They arrive as real push notifications even with the viewer closed, in Chrome, Edge, Firefox and Safari. On an iPhone, add the viewer to your Home Screen first, which Apple requires. Brave needs **Use Google services for push messaging** turned on in its settings. To get a push on your phone when nothing's open, pass a URL, such as an [ntfy](https://ntfy.sh) topic: `ridealong up --notify https://ntfy.sh/your-secret-topic`. The reason the agent gave goes to that URL, so use one you trust.
 
-On a phone or tablet, the viewer adds a **Type into the browser** box whenever the screen is unlocked, because touch keyboards can't type into a remote screen. Tap the field in the browser, type or paste your code in the box, and press **Send**.
+On a phone or tablet, the viewer adds a **Type into the browser** box whenever the screen is unlocked, because touch keyboards can't type into a remote screen. Tap the field in the browser, type or paste your code in the box, and press **Send**. Press **Enter** instead to type the text and then press Return, for a form that does not submit on its own.
 
 <img src="docs/images/phone.png" width="300" alt="Your turn on a phone, with a box for typing into the browser and a large Hand back button">
 

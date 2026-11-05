@@ -256,7 +256,8 @@ input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border: 0; bo
   .primary { position: fixed; left: 12px; right: 12px; bottom: 12px; z-index: 4; justify-content: center; }
   body.turn .status { display: none; }
   body.turn .workspace { padding-bottom: 80px; }
-  .turn-banner { flex-wrap: wrap; align-items: flex-start; gap: 4px 12px; padding: 0 14px 10px; }
+  /* No z-index here: it would make the banner a stacking context and trap the fixed Hand back button under .workspace. */
+  .turn-banner { z-index: auto; flex-wrap: wrap; align-items: flex-start; gap: 4px 12px; padding: 0 14px 10px; }
   .turn-banner .orb.large { width: 42px; height: 42px; }
   .turn-copy h2 { font-size: 26px; line-height: 30px; }
   .turn-reason { font-size: 15.5px; line-height: 21px; }
