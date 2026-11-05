@@ -120,6 +120,23 @@ test("sessions keep unique labels, and a lost one must rejoin", async () => {
   assert.equal((await a.call("/api/session/beat", { id: "nobody" })).status, 404);
 });
 
+test("session ids are never reused, not even after a restart, and a label can be asked for", async () => {
+  const first = api(await start(16212));
+  const old = await first.join("Claude");
+  running.pop().kill();
+  await new Promise((r) => setTimeout(r, 200));
+  const second = api(await start(16212));
+  const fresh = await second.join("Claude");
+  assert.notEqual(fresh, old);
+  assert.equal((await second.call("/api/session/beat", { id: old })).status, 404);
+  // Back with its old label, status and tab, it shows at once.
+  const back = await second.call("/api/session", { agent: "Claude", label: "Claude 2", text: "Reading", target: "ABC123" });
+  assert.equal(back.label, "Claude 2");
+  assert.deepEqual((await second.view()).sessions.map((s) => [s.label, s.text]), [["Claude 2", "Reading"]]);
+  // A taken label falls back to the next free one.
+  assert.equal((await second.call("/api/session", { agent: "Claude", label: "Claude 2" })).label, "Claude 3");
+});
+
 test("idle sessions leave the list, unless they need you", async () => {
   const idle = api(await start(16211, { RIDEALONG_IDLE_HIDE_MIN: "0.005" })); // 300 ms
   const quiet = await idle.join("Claude");
@@ -284,4 +301,46 @@ test("a tab can have only one owning session", async () => {
   assert.equal((await a.call("/api/session/target", { id: two, target: "TABTWO" })).status, 200);
   await a.call("/api/session/end", { id: one });
   await a.call("/api/session/end", { id: two });
+});
+
+test("a queued turn's limit counts from when it comes forward", async () => {
+  const one = await a.join("Claude");
+  const two = await a.join("Codex");
+  const first = await a.call("/api/handover", { session: one, reason: "first", minutes: 2 });
+  const second = await a.call("/api/handover", { session: two, reason: "second", minutes: 2 });
+  assert.equal(first.front, true);
+  assert.equal(second.front, false);
+  await new Promise((r) => setTimeout(r, 1200));
+  // The second agent is long-polling; answering the first brings its turn forward.
+  const waiting = a.call(`/api/handover/wait?id=${second.id}`);
+  await a.call("/api/done", { id: first.id });
+  const now = await waiting;
+  assert.equal(now.front, true);
+  assert.ok(Math.abs(now.left - 120000) < 1000, `left ${now.left}`);
+  const { turn } = await a.view();
+  assert.equal(turn.id, second.id);
+  assert.ok(Math.abs(turn.deadline - Date.now() - 120000) < 1000);
+  await a.call("/api/done", { id: second.id });
+  await a.call("/api/session/end", { id: one });
+  await a.call("/api/session/end", { id: two });
+});
+
+test("Control holds only the session on screen, and follows the human's tab", async () => {
+  const one = await a.join("Claude");
+  const two = await a.join("Codex");
+  await a.call("/api/follow", { id: one });
+  await a.call("/api/mode", { mode: "control" });
+  assert.equal((await a.call(`/api/gate?session=${two}`)).go, true);
+  const held = a.call(`/api/gate?session=${one}`);
+  await new Promise((r) => setTimeout(r, 200));
+  // Clicking the other session's tab releases the first and holds the second.
+  await a.call("/api/follow", { id: two });
+  assert.equal((await held).go, true);
+  assert.equal((await a.call(`/api/gate?session=${one}`)).go, true);
+  const holdsTwo = a.call(`/api/gate?session=${two}`);
+  await new Promise((r) => setTimeout(r, 200));
+  await a.call("/api/mode", { mode: "auto" });
+  assert.equal((await holdsTwo).go, true);
+  await a.call("/api/session/end", { id: two });
+  await a.call("/api/session/end", { id: one });
 });

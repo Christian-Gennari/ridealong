@@ -645,6 +645,11 @@ $("typer").addEventListener("submit", (e) => {
   typeInto($("typer-text").value);
   $("typer-text").value = "";
 });
+// Send only types, so a field that auto-submits (a 2FA code) isn't submitted twice. Enter types the text, then presses Return.
+$("typer-enter").addEventListener("click", () => {
+  typeInto($("typer-text").value + "\n");
+  $("typer-text").value = "";
+});
 
 const NOTIFY_OK = "Notification" in window && window.isSecureContext;
 const refreshNotifications = bind("notifications", "notifications", () => {

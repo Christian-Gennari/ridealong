@@ -2,6 +2,7 @@
 // shared state (what the agent is doing, who has control). Agents reach it
 // through mcp/ridealong-mcp.mjs and keep working if it is down.
 import { execFile } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -27,7 +28,6 @@ const streams = new Set();
 let waiters = [];
 let nextTurn = Date.now(); // never reused, so an agent can tell a restart from an answer
 const answered = new Map(); // turn id to whether the human blocked it
-let nextSession = 0;
 let followed = null; // the session whose tab is in front
 let pinned = false;  // the human chose this, so don't move on when it goes quiet
 let shownTurn = null; // the handover we've already brought forward
@@ -63,6 +63,7 @@ const pickFollowed = () => {
 };
 
 // Brings a session's tab forward straight away, over the browser's debugging port.
+// Each session's tab sits in a window of its own, so this raises that window too.
 const activateTab = () => {
   const target = sessions.get(followed)?.target;
   if (!target || activated === target) return;
@@ -117,6 +118,10 @@ const BRAVE_STALE_DAYS = 14;
 const imageAge = () => (Date.now() / 1000 - Number(process.env.RIDEALONG_BUILT || Date.now() / 1000)) / 86400;
 
 const canAct = () => state.mode !== "control";
+// Control holds the session on screen. With nobody on screen it holds all of them.
+const held = (session) => state.mode === "control" && (!session || followed === null || followed === session);
+// Where a waiting agent stands: at the front its limit runs, behind it nothing does.
+const place = (turn) => turn === state.turns[0] ? { front: true, left: Math.max(0, turn.deadline - Date.now()) } : { front: false, left: null };
 const locked = () => state.mode === "watch" || (state.mode === "auto" && !state.turns.length);
 const view = () => {
   const current = sessions.get(followed);
@@ -135,7 +140,14 @@ const view = () => {
   };
 };
 
+// A turn's time limit counts from when it comes forward, not from when it was asked.
+const startFront = () => {
+  const turn = state.turns[0];
+  if (turn && !turn.deadline) turn.deadline = Date.now() + turn.limit;
+};
+
 const publish = () => {
+  startFront();
   shownSessions = [...sessions.values()].filter(listed).map((x) => x.id).join();
   pickFollowed();
   activateTab();
@@ -322,17 +334,27 @@ const api = {
     publish();
     json(res, 200, { hosts: rules });
   },
-  "GET /api/gate": async (req, res) => {
-    if (!canAct()) await nextChange();
-    json(res, 200, { go: canAct() });
+  "GET /api/gate": async (req, res, url) => {
+    const session = url.searchParams.get("session");
+    if (held(session)) await nextChange();
+    json(res, 200, { go: !held(session) });
   },
   "POST /api/session": async (req, res) => {
-    const { agent } = await readBody(req);
+    const { agent, label: wanted, text, target } = await readBody(req);
     const base = clip(agent, 24) || "Agent";
     const taken = new Set([...sessions.values()].map((x) => x.label));
-    let n = 1;
-    while (taken.has(n === 1 ? base : `${base} ${n}`)) n += 1;
-    const session = { id: String(++nextSession), label: n === 1 ? base : `${base} ${n}`, text: "", at: 0, seen: Date.now() };
+    // A wrapper that outlived a viewer restart asks for its old label back.
+    let name = clip(wanted, 30);
+    if (!name || taken.has(name)) {
+      let n = 1;
+      while (taken.has(n === 1 ? base : `${base} ${n}`)) n += 1;
+      name = n === 1 ? base : `${base} ${n}`;
+    }
+    // Random ids are never reused, so a wrapper can tell a restart from a 404.
+    const session = { id: crypto.randomUUID(), label: name, text: "", at: 0, seen: Date.now() };
+    // Its last status and tab come back too, so it shows in the dropdown at once.
+    if (typeof text === "string" && text) { session.text = clip(text, 80); session.at = Date.now(); }
+    if (typeof target === "string" && /^[A-Z0-9]+$/i.test(target)) session.target = target;
     sessions.set(session.id, session);
     expectAgentTab(AGENT_START_MS);
     json(res, 200, { id: session.id, label: session.label });
@@ -395,7 +417,7 @@ const api = {
     const current = sessions.get(session);
     if (!current) return json(res, 404, {});
     const at = Date.now();
-    const turn = { id: ++nextTurn, session, agent: current.label, reason: clip(reason, 140), at, deadline: at + (Number(minutes) || 10) * 60000,
+    const turn = { id: ++nextTurn, session, agent: current.label, reason: clip(reason, 140), at, limit: (Number(minutes) || 10) * 60000, deadline: null,
       kind: kind === "approval" ? "approval" : "handover", host: clip(host, 80) };
     state.turns.push(turn);
     current.text = "Waiting for you";
@@ -404,13 +426,14 @@ const api = {
     notify(turn);
     pushTurn(turn);
     publish();
-    json(res, 200, { id: turn.id });
+    json(res, 200, { id: turn.id, ...place(turn) });
   },
   "GET /api/handover/wait": async (req, res, url) => {
     const id = Number(url.searchParams.get("id"));
     if (state.turns.some((t) => t.id === id)) await nextChange();
     const open = state.turns.some((t) => t.id === id);
-    json(res, 200, { done: answered.has(id), blocked: answered.get(id) === true, lost: !open && !answered.has(id) });
+    const turn = state.turns.find((t) => t.id === id);
+    json(res, 200, { done: answered.has(id), blocked: answered.get(id) === true, lost: !open && !answered.has(id), ...(turn ? place(turn) : {}) });
   },
   "POST /api/handover/cancel": async (req, res) => {
     const { id } = await readBody(req);

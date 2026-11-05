@@ -68,7 +68,20 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   const msg = JSON.parse(line);
   if (msg.method !== "tools/call") return;
   const { name, arguments: args = {} } = msg.params;
-  console.error(JSON.stringify({ call: name, action: args.action }));
+  console.error(JSON.stringify({ call: name, action: args.action, slowly: args.slowly }));
+  // Like 0.0.84 for a URL that downloads: an error with the URL in its log, and the
+  // file saved a moment later in our working directory. "also" saves a second file.
+  if (name === "browser_navigate" && /\/(download|failed)\b/.test(args.url)) {
+    const url = new URL(args.url);
+    if (url.pathname === "/download") {
+      for (const file of [url.searchParams.get("name"), url.searchParams.get("also")].filter(Boolean)) {
+        setTimeout(() => fs.writeFileSync(file, "a,b\n"), 100);
+      }
+    }
+    const error = url.pathname === "/download" ? "Download is starting" : "net::ERR_CONNECTION_REFUSED";
+    const text = `### Error\nError: page.goto: ${error}\nCall log:\n  - navigating to "${args.url}", waiting until "domcontentloaded"`;
+    return process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { isError: true, content: [{ type: "text", text }] } }) + "\n");
+  }
   // One call at a time across fake processes, like one browser serving them in turn.
   const unlock = await lock();
   let b;
@@ -78,7 +91,7 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   if (name === "browser_run_code_unsafe") {
     if (!b.pages.length) newPage(b, undefined);
     tabs(b);
-    text = JSON.stringify(await runCode(b, args.code));
+    text = String(args.code).includes("page.url()") ? '"https://secure.example/"' : JSON.stringify(await runCode(b, args.code));
   } else if (name === "browser_tabs") {
     const i = args.index ?? b.pages.findIndex((p) => p.id === current);
     if (args.action === "new") newPage(b, args.url);

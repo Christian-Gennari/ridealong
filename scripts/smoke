@@ -4,13 +4,14 @@ set -euo pipefail
 REPO=$(dirname "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")")
 DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker}
 HOME=$(mktemp -d)
-export HOME DOCKER_CONFIG
+# Its own name, so it never touches a Ridealong that is already running here.
+export HOME DOCKER_CONFIG RIDEALONG_NAME=ridealong-smoke-$$
 trap '"$REPO/ridealong" uninstall >/dev/null 2>&1 || true; rm -rf "$HOME"' EXIT
 PORT=${SMOKE_PORT:-16080}
 
 "$REPO/ridealong" up --build --network ssh --port "$PORT"
 
-docker exec ridealong sh -c '
+docker exec "$RIDEALONG_NAME" sh -c '
   renderer=$(pgrep -f -- --type=renderer | head -1)
   [ -n "$renderer" ] || { echo "no renderer"; exit 1; }
   grep -q "^Seccomp:[[:space:]]*2" "/proc/$renderer/status" || { echo "renderer has no seccomp filter"; exit 1; }

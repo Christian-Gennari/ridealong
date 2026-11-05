@@ -25,7 +25,7 @@ Agents get stuck wherever there's no API: dashboards, admin panels, anything beh
 - **Human handover:** the agent asks, the whole screen tells you it's your turn, you hand back. It waits for you and resumes on its own.
 - **Safe by default:** the viewer is locked while agents work, and agents pause when you take control.
 - **Plug and play:** one command connects any MCP client. There are no providers or plugins to add, and any model works.
-- **Parallel agents:** every session gets its own tab, so they can work at the same time. Switch between them from a dropdown.
+- **Parallel agents:** every session gets its own browser window, so they can work at the same time, even while you watch another one. Switch between them from a dropdown.
 
 ## Install
 
@@ -51,6 +51,7 @@ Everything runs in one container, so nothing is installed on the server except t
 | `ridealong update` | Get the latest version, including Brave, and restart |
 | `ridealong connect` | Connect MCP clients you've installed since |
 | `ridealong uninstall` | Remove the container and agent config, keeping your profile and files |
+| `ridealong --name NAME <command>` | Run any command on a separate instance (or set `RIDEALONG_NAME`) |
 
 Brave only updates with the image, which is rebuilt every week, so run `ridealong update` regularly. The viewer reminds you after 14 days.
 
@@ -62,9 +63,9 @@ Moving from an older install that ran directly on the server? Run `./ridealong m
 |---|---|
 | **Auto** | Locked while agents work, so a stray click can't disturb them. Unlocks when one asks for you, and locks again when you hand back. |
 | **Watch** | Always locked. If an agent asks for you, the viewer offers to unlock. |
-| **Control** | The browser is yours, and agents wait until you release it. |
+| **Control** | The browser is yours. The agent whose tab you are looking at waits until you release it; other agents keep working in their own tabs. |
 
-Want to step in while an agent is working? Press **Control**, or click the screen and choose **Take control**. The agent finishes its current action and waits until you release it.
+Want to step in while an agent is working? Press **Control**, or click the screen and choose **Take control**. The agent whose session is on screen finishes its current action and waits until you release it. Other agents keep working. Click another session's tab and that one waits instead.
 
 When an agent needs you, the whole viewer floods with that agent's colour and says **Your turn**, with the reason and how long it will wait. The browser stays clear in the middle and takes your keyboard straight away. Do what it asks and press **Hand back**.
 
@@ -74,7 +75,7 @@ Your agent's app hears about it too: Claude Code, and any client that supports M
 
 To hear about it with no viewer open at all, press **Turn on** when the viewer offers notifications, once on each device you use. They arrive as real push notifications even with the viewer closed, in Chrome, Edge, Firefox and Safari. On an iPhone, add the viewer to your Home Screen first, which Apple requires. Brave needs **Use Google services for push messaging** turned on in its settings. To get a push on your phone when nothing's open, pass a URL, such as an [ntfy](https://ntfy.sh) topic: `ridealong up --notify https://ntfy.sh/your-secret-topic`. The reason the agent gave goes to that URL, so use one you trust.
 
-On a phone or tablet, the viewer adds a **Type into the browser** box whenever the screen is unlocked, because touch keyboards can't type into a remote screen. Tap the field in the browser, type or paste your code in the box, and press **Send**.
+On a phone or tablet, the viewer adds a **Type into the browser** box whenever the screen is unlocked, because touch keyboards can't type into a remote screen. Tap the field in the browser, type or paste your code in the box, and press **Send**. Press **Enter** instead to type the text and then press Return, for a form that does not submit on its own.
 
 <img src="docs/images/phone.png" width="300" alt="Your turn on a phone, with a box for typing into the browser and a large Hand back button">
 
@@ -94,15 +95,17 @@ Rules protect the page in front of the agent. They can't stop a script on anothe
 
 ## Parallel agents
 
-Every agent session gets its own tab and its own label (Claude, Claude 2, and so on), so sessions can work at the same time without touching each other's pages. They share one browser, so they also share logins. The tabs are grouped by session and close when the session ends. Ridealong tracks each session's tabs by id, so if an agent opens and closes tabs, its next call still lands in one of its own tabs, and ending the session closes exactly the tabs it opened. The tab list an agent sees (the "Open tabs" block and `browser_tabs`) shows only its own tabs, numbered from 0. `select` and `close` use those numbers, and a number outside the list is refused. Pages that its tabs open (`target=_blank`, `window.open`) belong to the session and close with it. The viewer gives each tab to one session only, so sessions that open tabs at the same moment can't take the same one.
+Every agent session gets its own window (one tab in it to start with) and its own label (Claude, Claude 2, and so on), so sessions can work at the same time without touching each other's pages. They share one browser profile, so they also share logins. A window that isn't on screen keeps working, because a hidden tab in a shared window would get no clicks or key presses. A tab a session opens with `browser_tabs` new gets a window of its own too. The tabs are grouped by session and close when the session ends. Ridealong tracks each session's tabs by id, so if an agent opens and closes tabs, its next call still lands in one of its own tabs, and ending the session closes exactly the tabs it opened. The tab list an agent sees (the "Open tabs" block and `browser_tabs`) shows only its own tabs, numbered from 0. `select` and `close` use those numbers, and a number outside the list is refused. Pages that its tabs open (`target=_blank`, `window.open`) belong to the session and close with it. The viewer gives each tab to one session only, so sessions that open tabs at the same moment can't take the same one.
 
-The screen stays on one session rather than flipping between them. With two or more running, the **sessions** dropdown in the top bar shows what each one is doing and which one needs you. Pick one to watch it, or in Control mode click its tab in Brave: the two always stay in sync. If several sessions need you, their requests queue, and each comes forward in turn.
+The screen stays on one session rather than flipping between them. With two or more running, the **sessions** dropdown in the top bar shows what each one is doing and which one needs you. Pick one to watch it, or in Control mode click its tab in Brave: the two always stay in sync. If several sessions need you, their requests queue, and each comes forward in turn. An agent's time limit starts when its request comes forward, not when it asked, and a queued agent keeps waiting (up to three times the limit in total).
 
 ![The sessions dropdown listing Claude, Codex and Gemini with what each is doing](docs/images/sessions.png)
 
 Agent clients often keep a session's connection open long after its work is done. After 15 minutes without a browser call, a session leaves the dropdown (unless it needs you). After 2 hours, Ridealong closes its tab and frees its place, but keeps the connection: if the agent comes back, it gets a new tab and a note that the old one was closed. Change the limits with `RIDEALONG_IDLE_HIDE_MIN` and `RIDEALONG_IDLE_RELEASE_MIN` in `~/.config/ridealong/config.env`, then run `ridealong up`. 0 turns either off.
 
-Isolation is per MCP connection. Subagents that share one connection also share one tab, so give browser work to one subagent at a time.
+Isolation is per MCP connection. Subagents of one agent session share one connection, so they share one current tab: if two of them use the browser at once, their clicks and typing can land in each other's pages. Ridealong runs the calls of one connection one at a time, and when it sees calls overlap while the session switches between its tabs, it adds a note to the answer (at most once a minute) saying so.
+
+For an orchestrator with parallel browser workers, run each worker as its own client process, for example a separate `claude -p` or `codex exec` that uses `ridealong mcp`. Each process is then its own session with its own tab and label. If the workers must be subagents of one session, give browser work to one subagent at a time.
 
 ## Reaching the viewer
 
@@ -142,11 +145,13 @@ Tools configured with JSON, like Cursor and Claude Desktop, use this:
 
 `--agent` is the name you'll see in the viewer. Clients receive the usage rules when they connect. If your client has a tool timeout, set it above 11 minutes, because `browser_handover` waits up to 10 for you. `ridealong connect` does this for Codex and Hermes.
 
+`codex exec` (headless Codex) fails every call with "MCP tool call requires approval" unless the server has `default_tools_approval_mode = "approve"` under `[mcp_servers.ridealong]` in `~/.codex/config.toml`. `ridealong connect` sets it. If you registered Codex by hand, add that line.
+
 The ChatGPT web and desktop apps can't use it: they only connect to remote MCP servers, and this one shouldn't be exposed to the internet. Use Codex instead.
 
 ## Files and localhost
 
-Brave runs in a container, so it sees only one folder of yours, `~/ridealong-files`. Agents upload from it and downloads land in it. It has the same path inside and out, so the paths agents get back work as they are.
+Brave runs in a container, so it sees only one folder of yours, `~/ridealong-files`. Agents upload from it and downloads land in it. It has the same path inside and out, so the paths agents get back work as they are. When a page load turns into a download, the answer names the saved file. If two sessions download at the same moment and the file cannot be matched to one of them, the answer lists the new files and says so.
 
 `localhost` in this browser is the container, not your server. To let agents open a dev server running on the machine, use `ridealong up --host-network`. Brave then shares the server's network, so you give up the network isolation.
 
@@ -158,7 +163,7 @@ One container runs Xvfb, a bare window manager, Brave, x11vnc and the viewer, wi
 
 Only the viewer port leaves the container. VNC and Brave's debugging port stay inside it.
 
-To work on Ridealong itself, run `ridealong up --build`, `npm test` in `viewer/`, and `scripts/smoke` to boot the real image.
+To work on Ridealong itself, run `npm test` in `viewer/`, and `scripts/smoke` to boot the real image. Smoke uses its own instance name, so it never touches a Ridealong you already run. To try a build next to your real install, use a named instance: `ridealong --name dev up --build --port 6090`. It has its own container, image, config (`~/.config/ridealong-dev`) and profile (`~/.ridealong-browser-dev`), is never linked into `~/.local/bin`, and is not connected to your agents. It must have its own `--port` (and `--https-port` with Tailscale); `ridealong` refuses the default 6086 and 6087, which the main install uses. To point an agent at it, use `RIDEALONG_NAME=dev ridealong mcp`.
 
 ## Security
 
