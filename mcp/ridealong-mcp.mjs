@@ -193,13 +193,16 @@ const report = async (text, quiet) => {
 };
 
 const LONG_POLL_MS = 30000;
+const QUEUE_CAP = 3; // a queued handover waits at most this many times its limit
 
 // Holds the agent while the human has control. No viewer means nobody to wait for.
 const gate = async () => {
   const deadline = Date.now() + HANDOVER_MINUTES * 60000;
   while (Date.now() < deadline) {
     try {
-      if ((await viewer("/api/gate", { timeoutMs: LONG_POLL_MS })).go) return true;
+      // Control holds only the session on screen, so the viewer needs to know which this is.
+      const id = await (session ?? register());
+      if ((await viewer(`/api/gate${id ? `?session=${encodeURIComponent(id)}` : ""}`, { timeoutMs: LONG_POLL_MS })).go) return true;
     } catch {
       return true;
     }
@@ -470,13 +473,20 @@ const reply = (msg, text) => toClient(withNotice({ jsonrpc: "2.0", id: msg.id, r
 // Puts a request in front of the human and waits for the answer. Null means the
 // viewer couldn't be reached; { timedOut } means nobody answered.
 const ask = async (reason, extra = {}) => {
-  const deadline = Date.now() + HANDOVER_MINUTES * 60000;
+  // The limit counts from when the request comes forward in the viewer, so a queued
+  // request keeps waiting. The cap stops an agent from waiting forever behind others.
+  const limit = HANDOVER_MINUTES * 60000;
+  const cap = Date.now() + limit * QUEUE_CAP;
+  let deadline = Date.now() + limit;
+  const place = (r) => { if (r?.front === true) deadline = Math.min(cap, Date.now() + r.left); else if (r?.front === false) deadline = Math.min(cap, Date.now() + limit); };
   const post = async () => viewer("/api/handover", {
-    body: { session: await (session ?? register()), reason: short(reason, 140), minutes: (deadline - Date.now()) / 60000, ...extra },
+    body: { session: await (session ?? register()), reason: short(reason, 140), minutes: HANDOVER_MINUTES, ...extra },
   });
   let id;
   try {
-    ({ id } = await post());
+    const posted = await post();
+    ({ id } = posted);
+    place(posted);
   } catch {
     return null;
   }
@@ -499,8 +509,13 @@ const ask = async (reason, extra = {}) => {
   while (Date.now() < deadline) {
     const r = await viewer(`/api/handover/wait?id=${id}`, { timeoutMs: LONG_POLL_MS }).catch(() => sleep(2000));
     if (r?.done) return finished(r);
+    place(r);
     // The viewer restarted and lost the request, so nobody has answered it.
-    if (r?.lost) ({ id } = await post().catch(() => ({ id })));
+    if (r?.lost) {
+      const posted = await post().catch(() => ({ id }));
+      ({ id } = posted);
+      place(posted);
+    }
   }
   await viewer("/api/handover/cancel", { body: { id } }).catch(() => {});
   return finished({ timedOut: true });

@@ -17,16 +17,16 @@ const servers = [];
 after(() => { bridges.forEach((b) => b.kill()); servers.forEach((s) => s.close()); });
 
 // Each bridge gets its own fake viewer and debugging port, which record every request.
-const startBridge = async (env, cwd) => {
+const startBridge = async (env, cwd, routes = {}) => {
   const seen = [];
   let nextSession = 0;
   let known = new Set();
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => { body += c; });
-    req.on("end", () => {
+    req.on("end", async () => {
       const path = req.url.split("?")[0];
-      seen.push({ path, body: body ? JSON.parse(body) : null });
+      seen.push({ path, query: req.url.split("?")[1], body: body ? JSON.parse(body) : null });
       const send = (o) => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(o)); };
       if (path === "/api/session") {
         const id = `s${++nextSession}`;
@@ -34,6 +34,7 @@ const startBridge = async (env, cwd) => {
         return send({ id, label: seen.at(-1).body.label || "Claude" });
       }
       if (path === "/api/session/beat" && !known.has(seen.at(-1).body.id)) { res.writeHead(404); return res.end("{}"); }
+      if (routes[path]) return send(await routes[path](seen.at(-1)));
       if (path === "/api/gate") return send({ go: true });
       if (path === "/api/rules") return send({ hosts: [] });
       if (path === "/json/list") return send([{ id: TARGET, type: "page" }, { id: "OTHER", type: "page" }]);
@@ -129,4 +130,36 @@ test("saved files point into the shared folder, whatever the client's root", asy
   const [text] = texts(await bridge.call("browser_snapshot", { saved: "page.yml" }));
   const file = path.join(fs.realpathSync(shared), "page.yml");
   assert.equal(text, `- [Snapshot](${file})\nSaved to "${file}"`);
+});
+
+test("a handover waits on while it is queued, and its limit starts once it comes forward", async () => {
+  let polls = 0;
+  const bridge = await startBridge({ RIDEALONG_HANDOVER_MINUTES: "0.02" }, undefined, { // 1.2 s limit, 3.6 s cap
+    "/api/handover": () => ({ id: 7, front: false, left: null }),
+    "/api/handover/wait": async () => {
+      await sleep(400);
+      polls += 1;
+      return polls < 5 ? { done: false, front: false, left: null } : { done: true, front: true };
+    },
+  });
+  const answer = await bridge.call("browser_handover", { reason: "2FA code" });
+  assert.match(texts(answer)[0], /handed control back/);
+  assert.ok(polls >= 5);
+  assert.equal(bridge.count("/api/handover/cancel"), 0);
+});
+
+test("a handover queued past the cap gives up", async () => {
+  const bridge = await startBridge({ RIDEALONG_HANDOVER_MINUTES: "0.01" }, undefined, { // 600 ms limit, 1.8 s cap
+    "/api/handover": () => ({ id: 8, front: false, left: null }),
+    "/api/handover/wait": async () => { await sleep(300); return { done: false, front: false, left: null }; },
+  });
+  assert.match(texts(await bridge.call("browser_handover", { reason: "x" }))[0], /Nobody handed control back/);
+  assert.equal(bridge.count("/api/handover/cancel"), 1);
+});
+
+test("the gate asks about this session only", async () => {
+  const bridge = await startBridge({});
+  await bridge.call("browser_navigate", { url: "https://example.com" });
+  const gate = bridge.seen.find((x) => x.path === "/api/gate");
+  assert.match(gate.query, /^session=s\d+$/);
 });
