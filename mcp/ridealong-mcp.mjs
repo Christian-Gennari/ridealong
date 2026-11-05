@@ -213,11 +213,12 @@ const ownOnly = (text, all, listing) => {
     out.push({ mine, here, rest: m[3] });
   }
   // Playwright's current tab may be someone else's; ours is where the next call lands.
-  const fallback = ownIds.indexOf(myTarget);
+  // myTarget may be the tab that just closed: then the next call lands on our last one.
+  const fallback = ownIds.includes(myTarget) ? ownIds.indexOf(myTarget) : ownIds.length - 1;
   return out.map((l) => typeof l === "string" ? l
     : `- ${l.mine}:${(l.here || (!seenCurrent && l.mine === fallback)) ? " (current)" : ""} ${l.rest}`).join("\n");
 };
-const hasTabList = (text) => /^### (Open tabs|Result)\n- \d+:/m.test(text);
+const hasTabList = (text) => /^### (Open tabs|Result)$/m.test(text) && /^- \d+:/m.test(text);
 
 // Before each call, make Playwright's current page one of ours. selectTab brings
 // the tab to the front, so announce afterwards to give the viewer's screen back.
@@ -271,12 +272,14 @@ const keepBraveOpen = async (closing) => {
 const sameUrl = (a, b) => { try { return new URL(a).href === new URL(b).href; } catch { return a === b; } };
 const adoptNew = async (before, url) => {
   const id = await session;
-  if (!id) return;
+  if (!id) return true;
   const now = before ? await pages().catch(() => null) : null;
   const fresh = (now ?? []).filter((t) => !before.includes(t.id) && !ownTargets.has(t.id));
-  if (!fresh.length) return shareTarget(true);
+  if (!fresh.length) { await shareTarget(true); return true; }
   const rank = (t) => (url && sameUrl(t.url, url) ? 0 : t.url === "about:blank" || !url ? 1 : 2);
-  for (const t of fresh.filter((t) => rank(t) < 2).sort((x, y) => rank(x) - rank(y))) {
+  // A blank tab only counts while the requested URL isn't showing anywhere yet.
+  const exact = fresh.filter((t) => rank(t) === 0);
+  for (const t of exact.length ? exact : fresh.filter((t) => rank(t) === 1)) {
     try {
       await viewer("/api/session/target", { body: { id, target: t.id } });
     } catch (e) {
@@ -284,10 +287,10 @@ const adoptNew = async (before, url) => {
     }
     ownTargets.add(t.id);
     myTarget = t.id;
-    return;
+    return true;
   }
-  // Every fresh tab belongs to someone else: start over on the next call.
-  resetTabState();
+  // Every fresh tab belongs to someone else.
+  return false;
 };
 const openedIds = async () => (await pages().catch(() => null))?.map((t) => t.id) ?? null;
 
@@ -298,8 +301,11 @@ const claimTab = () => (ownTab ??= register()
     const before = await openedIds();
     await callChild({ name: "browser_tabs", arguments: { action: "new" } });
     tabReady = true;
-    await adoptNew(before);
-    if (ownTab) await announce();
+    // Sessions that open tabs at the same moment can grab each other's blank tab.
+    // There is one for everybody, so look again once the others have chosen.
+    for (let attempt = 0; attempt < 20 && !(await adoptNew(before)); attempt += 1) await sleep(50);
+    if (!ownTargets.size) resetTabState();
+    else await announce();
   })
   .then(() => { blankTarget = myTarget; })
   .catch(() => {}));
@@ -528,31 +534,35 @@ const handleToolCall = async (msg) => {
   const answer = absolutePaths(await callChild(params));
   if (shot) await overlay({ cmd: "show" });
   let orphan = null;
-  if (name === "browser_tabs" && args.action !== "list" && ownTab) {
-    if (args.action === "new") {
-      const before = blankTarget;
-      await adoptNew(known, args.url);
-      if (!ownTab || !myTarget) return reply(msg, "Couldn't open your tab. Try again.");
-      // The tab the wrapper opened up front is still empty: don't leave it behind.
-      const open = before && before !== myTarget && ownTargets.has(before) ? await pages().catch(() => []) : [];
-      if (open.some((t) => t.id === before && t.url === "about:blank")) orphan = before;
-      blankTarget = null;
-    } else {
+  // Show only this session's tabs, numbered from 0. This reads the tabs as the
+  // answer saw them, so it comes before anything below moves or forgets our tabs.
+  const filterTabs = async () => {
+    if (!ownTab || !answer.result?.content?.some((c) => c.type === "text" && hasTabList(c.text))) return;
+    const pagesNow = await allTargets();
+    adoptPopups(pagesNow);
+    if (orphan) ownTargets.delete(orphan);
+    for (const part of answer.result.content) {
+      if (part.type === "text" && hasTabList(part.text)) part.text = ownOnly(part.text, pagesNow, name === "browser_tabs");
+    }
+  };
+  if (name === "browser_tabs" && args.action === "new" && ownTab) {
+    const before = blankTarget;
+    if (!(await adoptNew(known, args.url))) resetTabState();
+    if (!ownTab || !myTarget) return reply(msg, "Couldn't open your tab. Try again.");
+    // The tab the wrapper opened up front is still empty: don't leave it behind.
+    const open = before && before !== myTarget && ownTargets.has(before) ? await pages().catch(() => []) : [];
+    if (open.some((t) => t.id === before && t.url === "about:blank")) orphan = before;
+    blankTarget = null;
+    await filterTabs();
+  } else {
+    await filterTabs();
+    if (name === "browser_tabs" && args.action !== "list" && ownTab) {
       // A close leaves Playwright on any session's tab, so move back to one of ours.
       await noteLostTab();
       // A select moves us to another of our own tabs.
       await shareTarget(false);
       await pinTab().catch(() => {});
       await announce();
-    }
-  }
-  // Show only this session's tabs, numbered from 0.
-  if (ownTab && answer.result?.content?.some((c) => c.type === "text" && hasTabList(c.text))) {
-    const pagesNow = await allTargets();
-    adoptPopups(pagesNow);
-    if (orphan) ownTargets.delete(orphan);
-    for (const part of answer.result.content) {
-      if (part.type === "text" && hasTabList(part.text)) part.text = ownOnly(part.text, pagesNow, name === "browser_tabs");
     }
   }
   if (orphan) await closeOwnTabs([orphan]);

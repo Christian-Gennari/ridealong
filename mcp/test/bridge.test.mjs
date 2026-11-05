@@ -286,13 +286,21 @@ test("sessions that open tabs at the same moment each keep their own", async () 
   servers.push(viewer);
   await new Promise((r) => viewer.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${viewer.address().port}`;
-  const cdp = http.createServer((req, res) => {
+  // Takes the same lock as the fakes, so a close can't be undone by a stale write.
+  const cdp = http.createServer(async (req, res) => {
+    for (;;) {
+      try { fs.closeSync(fs.openSync(`${FAKE_BROWSER}.lock`, "wx")); break; } catch (e) {
+        if (e.code !== "EEXIST") return res.end("{}");
+        await sleep(2);
+      }
+    }
     const state = JSON.parse(fs.readFileSync(FAKE_BROWSER, "utf8"));
     if (req.url.startsWith("/json/close/")) {
       state.pages = state.pages.filter((p) => p.id !== req.url.split("/").pop());
       fs.writeFileSync(`${FAKE_BROWSER}.cdp`, JSON.stringify(state));
       fs.renameSync(`${FAKE_BROWSER}.cdp`, FAKE_BROWSER);
     }
+    fs.rmSync(`${FAKE_BROWSER}.lock`, { force: true });
     const pages = state.pages.map((p) => ({ id: p.id, type: "page", url: p.url }));
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(req.url.startsWith("/json/list") ? pages : {}));
@@ -323,4 +331,19 @@ test("sessions that open tabs at the same moment each keep their own", async () 
   await Promise.all(calls.map((c, i) => c("browser_navigate", { url: `https://n${i}.test/` })));
   const urls = JSON.parse(fs.readFileSync(FAKE_BROWSER, "utf8")).pages.map((p) => p.url).sort();
   assert.deepEqual(urls, [0, 1, 2, 3, 4].map((i) => `https://n${i}.test/`));
+});
+
+test("the answers to select, new and close list only the session's own tabs", async () => {
+  const { a, b } = await twoSessions();
+  await a.call("browser_navigate", { url: "https://a.test/1" });
+  await b.call("browser_navigate", { url: "https://b.test/1" });
+  const made = await a.call("browser_tabs", { action: "new", url: "https://a.test/2" });
+  assert.deepEqual(listed(made), ["- 0: [](https://a.test/1)", "- 1: (current) [](https://a.test/2)"]);
+  const closed = await a.call("browser_tabs", { action: "close", index: 1 });
+  assert.deepEqual(listed(closed), ["- 0: (current) [](https://a.test/1)"]);
+  assert.ok(!texts(closed).join("\n").includes("b.test"));
+  // Closing the last one: nothing of b's may show up either.
+  const last = await a.call("browser_tabs", { action: "close", index: 0 });
+  assert.deepEqual(listed(last), []);
+  assert.ok(!texts(last).join("\n").includes("b.test"));
 });
