@@ -274,3 +274,14 @@ test("a new turn pushes to the notify URL", async () => {
   await notified.call("/api/handover", { session: id, reason: "2FA code" });
   assert.deepEqual(await got, { title: "Your turn: Claude", body: "2FA code" });
 });
+
+test("a tab can have only one owning session", async () => {
+  const one = await a.join("Claude");
+  const two = await a.join("Claude");
+  assert.equal((await a.call("/api/session/target", { id: one, target: "TABONE" })).status, 200);
+  assert.equal((await a.call("/api/session/target", { id: two, target: "TABONE" })).status, 409);
+  assert.equal((await a.call("/api/session/target", { id: one, target: "TABONE" })).status, 200);
+  assert.equal((await a.call("/api/session/target", { id: two, target: "TABTWO" })).status, 200);
+  await a.call("/api/session/end", { id: one });
+  await a.call("/api/session/end", { id: two });
+});

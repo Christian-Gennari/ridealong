@@ -346,6 +346,8 @@ const api = {
     const { id, target } = await readBody(req);
     const current = sessions.get(id);
     if (current && typeof target === "string" && /^[A-Z0-9]+$/i.test(target)) {
+      // A tab has one owner: two sessions that grab a fresh tab at once can't share it.
+      if ([...sessions.values()].some((s) => s !== current && s.target === target)) return json(res, 409, { taken: true });
       current.target = target;
       expectAgentTab();
       // Put back whatever the human was looking at.
