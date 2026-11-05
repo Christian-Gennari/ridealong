@@ -17,7 +17,10 @@ const servers = [];
 after(() => { bridges.forEach((b) => b.kill()); servers.forEach((s) => s.close()); });
 
 // Each bridge gets its own fake viewer and debugging port, which record every request.
-const startBridge = async (env, cwd) => {
+// With env.FAKE_BROWSER set, the debugging port reflects the fake browser's shared pages.
+const startBridge = async (env = {}, cwd) => {
+  const browser = () => JSON.parse(fs.readFileSync(env.FAKE_BROWSER, "utf8"));
+  const edit = (f) => { const b = browser(); f(b); fs.writeFileSync(env.FAKE_BROWSER, JSON.stringify(b)); };
   const seen = [];
   let nextSession = 0;
   const server = http.createServer((req, res) => {
@@ -30,6 +33,9 @@ const startBridge = async (env, cwd) => {
       if (path === "/api/session") return send({ id: String(++nextSession), label: "Claude" });
       if (path === "/api/gate") return send({ go: true });
       if (path === "/api/rules") return send({ hosts: [] });
+      if (env.FAKE_BROWSER && path === "/json/list") return send(browser().pages.map((p) => ({ id: p.id, type: "page" })));
+      if (env.FAKE_BROWSER && path.startsWith("/json/close/")) return send(edit((b) => { b.pages = b.pages.filter((p) => p.id !== path.split("/").pop()); }));
+      if (env.FAKE_BROWSER && path === "/json/new") return send(edit((b) => b.pages.push({ id: `NEW${b.next++}`, url: "about:blank" })));
       if (path === "/json/list") return send([{ id: TARGET, type: "page" }, { id: "OTHER", type: "page" }]);
       send({});
     });
@@ -57,7 +63,8 @@ const startBridge = async (env, cwd) => {
     child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }) + "\n");
   });
   const count = (path) => seen.filter((x) => x.path === path).length;
-  return { call, calls, seen, count };
+  const end = () => child.stdin.end();
+  return { call, calls, seen, count, end };
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -108,4 +115,69 @@ test("saved files point into the shared folder, whatever the client's root", asy
   const [text] = texts(await bridge.call("browser_snapshot", { saved: "page.yml" }));
   const file = path.join(fs.realpathSync(shared), "page.yml");
   assert.equal(text, `- [Snapshot](${file})\nSaved to "${file}"`);
+});
+
+// Two sessions in one fake browser: the same state file stands for the shared Brave.
+const twoSessions = async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-browser-"));
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const FAKE_BROWSER = path.join(dir, "browser.json");
+  fs.writeFileSync(FAKE_BROWSER, JSON.stringify({ pages: [], next: 0 }));
+  const a = await startBridge({ FAKE_BROWSER });
+  const b = await startBridge({ FAKE_BROWSER });
+  const urls = () => JSON.parse(fs.readFileSync(FAKE_BROWSER, "utf8")).pages.map((p) => p.url);
+  return { a, b, urls };
+};
+
+test("new, close, navigate stays in the session's own tabs", async () => {
+  const { a, b, urls } = await twoSessions();
+  await a.call("browser_navigate", { url: "https://a.test/1" });
+  await b.call("browser_navigate", { url: "https://b.test/1" });
+  await a.call("browser_tabs", { action: "new", url: "https://a.test/2" });
+  await a.call("browser_tabs", { action: "close" });
+  // Playwright's current page is now b's. The next call must not land there.
+  await a.call("browser_navigate", { url: "https://a.test/3" });
+  assert.deepEqual(urls(), ["https://a.test/3", "https://b.test/1"]);
+  await b.call("browser_navigate", { url: "https://b.test/2" });
+  assert.deepEqual(urls(), ["https://a.test/3", "https://b.test/2"]);
+});
+
+test("closing one of two tabs moves on to the other one", async () => {
+  const { a, b, urls } = await twoSessions();
+  await a.call("browser_navigate", { url: "https://a.test/1" });
+  await b.call("browser_navigate", { url: "https://b.test/1" });
+  await a.call("browser_tabs", { action: "new", url: "https://a.test/2" });
+  await a.call("browser_tabs", { action: "close", index: 2 });
+  await a.call("browser_navigate", { url: "https://a.test/3" });
+  assert.deepEqual(urls(), ["https://a.test/3", "https://b.test/1"]);
+});
+
+test("closing the last tab makes the next call open a new one", async () => {
+  const { a, b, urls } = await twoSessions();
+  await a.call("browser_navigate", { url: "https://a.test/1" });
+  await b.call("browser_navigate", { url: "https://b.test/1" });
+  await a.call("browser_tabs", { action: "close" });
+  await a.call("browser_navigate", { url: "https://a.test/2" });
+  assert.deepEqual(urls().sort(), ["https://a.test/2", "https://b.test/1"]);
+});
+
+test("ending a session closes its own tabs, not the current one", async () => {
+  const { a, b, urls } = await twoSessions();
+  await a.call("browser_navigate", { url: "https://a.test/1" });
+  await b.call("browser_navigate", { url: "https://b.test/1" });
+  await a.call("browser_tabs", { action: "new", url: "https://a.test/2" });
+  // Playwright's current page is b's when a ends.
+  await a.call("browser_tabs", { action: "select", index: 1 });
+  a.end();
+  await sleep(1200);
+  assert.deepEqual(urls(), ["https://b.test/1"]);
+});
+
+test("browser_close closes all of the session's tabs by id", async () => {
+  const { a, b, urls } = await twoSessions();
+  await a.call("browser_navigate", { url: "https://a.test/1" });
+  await b.call("browser_navigate", { url: "https://b.test/1" });
+  await a.call("browser_tabs", { action: "new", url: "https://a.test/2" });
+  await a.call("browser_close");
+  assert.deepEqual(urls(), ["https://b.test/1"]);
 });

@@ -94,7 +94,7 @@ Rules protect the page in front of the agent. They can't stop a script on anothe
 
 ## Parallel agents
 
-Every agent session gets its own tab and its own label (Claude, Claude 2, and so on), so sessions can work at the same time without touching each other's pages. They share one browser, so they also share logins. The tabs are grouped by session and close when the session ends.
+Every agent session gets its own tab and its own label (Claude, Claude 2, and so on), so sessions can work at the same time without touching each other's pages. They share one browser, so they also share logins. The tabs are grouped by session and close when the session ends. Ridealong tracks each session's tabs by id, so if an agent opens and closes tabs, its next call still lands in one of its own tabs, and ending the session closes exactly the tabs it opened.
 
 The screen stays on one session rather than flipping between them. With two or more running, the **sessions** dropdown in the top bar shows what each one is doing and which one needs you. Pick one to watch it, or in Control mode click its tab in Brave: the two always stay in sync. If several sessions need you, their requests queue, and each comes forward in turn.
 
