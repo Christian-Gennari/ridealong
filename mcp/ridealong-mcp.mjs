@@ -247,6 +247,62 @@ const pages = async () => {
   return (await res.json()).filter((t) => t.type === "page");
 };
 
+// Opens a page in a window of its own in the shared profile. A hidden tab in a
+// shared window gets no animation frames or key events, so clicks and typing fail
+// there; a window of its own keeps working while another session is on screen.
+// Null means it didn't work (no browser endpoint, no WebSocket): callers fall back
+// to Playwright's own new tab.
+const openWindow = async (url) => {
+  let socket;
+  try {
+    const { webSocketDebuggerUrl } = await (await fetch(`${CDP}/json/version`, { signal: AbortSignal.timeout(1000) })).json();
+    if (!webSocketDebuggerUrl || typeof WebSocket === "undefined") return null;
+    socket = new WebSocket(webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => {
+      socket.onopen = resolve;
+      socket.onerror = () => reject(new Error("cdp"));
+      setTimeout(() => reject(new Error("cdp")), 2000);
+    });
+    let n = 0;
+    const waiting = new Map();
+    socket.onmessage = (e) => {
+      const m = JSON.parse(e.data);
+      waiting.get(m.id)?.(m);
+    };
+    const send = (method, params) => new Promise((resolve, reject) => {
+      waiting.set(++n, resolve);
+      socket.send(JSON.stringify({ id: n, method, params }));
+      setTimeout(() => reject(new Error("cdp")), 3000);
+    });
+    // New windows should be as big as the existing one, like Brave's own (no white edge).
+    const bounds = {};
+    const first = (await pages().catch(() => []))[0];
+    const known = first && (await send("Browser.getWindowForTarget", { targetId: first.id }).catch(() => null))?.result?.bounds;
+    if (known?.width && known?.height) Object.assign(bounds, { left: known.left, top: known.top, width: known.width, height: known.height });
+    // background: don't pull the screen away from whoever the human is watching.
+    const made = await send("Target.createTarget", { url, newWindow: true, background: true, ...bounds });
+    return made.result?.targetId ?? null;
+  } catch {
+    return null;
+  } finally {
+    try { socket?.close(); } catch { /* already closed */ }
+  }
+};
+
+// Waits until Playwright lists the page, then makes it the current one.
+const useOwnPage = async (id) => {
+  for (let i = 0; i < 40; i += 1) {
+    const all = (await allTargets(2000)).map((p) => p.id);
+    const at = all.indexOf(id);
+    if (at >= 0) {
+      await callChild({ name: "browser_tabs", arguments: { action: "select", index: at } }, 3000).catch(() => {});
+      return (await currentTarget()) === id;
+    }
+    await sleep(50);
+  }
+  return false;
+};
+
 // Brave restarted or someone closed our tab. Without our own tab, this session
 // would land in whichever tab Playwright picks, which may be another session's.
 const noteLostTab = async () => {
@@ -298,6 +354,15 @@ let ownTab = null;
 let settled = false;
 const claimTab = () => (ownTab ??= register()
   .then(async () => {
+    const windowId = await openWindow("about:blank");
+    if (windowId && await useOwnPage(windowId)) {
+      ownTargets.add(windowId);
+      myTarget = windowId;
+      tabReady = true;
+      return announce();
+    }
+    // No window of its own: close the stray one and share Brave's window.
+    if (windowId) await closeOwnTabs([windowId]);
     const before = await openedIds();
     await callChild({ name: "browser_tabs", arguments: { action: "new" } });
     tabReady = true;
@@ -328,9 +393,12 @@ const closeOwnTabs = async (ids) => {
   await Promise.all(ids.map((id) => fetch(`${CDP}/json/close/${id}`, { signal: AbortSignal.timeout(1000) }).catch(() => {})));
 };
 
+// Says whether this session is the one on screen (true when the viewer can't tell).
 const report = async (text, quiet) => {
   const id = await (session ?? register());
-  if (id) await viewer("/api/activity", { body: { session: id, text, quiet } }).catch(() => {});
+  if (!id) return true;
+  const r = await viewer("/api/activity", { body: { session: id, text, quiet } }).catch(() => null);
+  return r?.front !== false;
 };
 
 const LONG_POLL_MS = 30000;
@@ -508,12 +576,15 @@ const handleToolCall = async (msg) => {
   if (refused) return reply(msg, refused);
   const text = LABELS[name]?.(args);
   const params = { ...msg.params };
+  let onScreen = true;
   if (text) {
-    await report(text, QUIET.has(name));
+    onScreen = await report(text, QUIET.has(name));
     if (POINTED.has(name) && args.target) await glideTo(args, text);
     else await overlay({ cmd: "status", text });
   }
-  if (name === "browser_type" && args.slowly === undefined && String(args.text ?? "").length <= 80) {
+  // Key by key suits the window on screen. A hidden one may not get key events,
+  // but fill works there.
+  if (name === "browser_type" && args.slowly === undefined && onScreen && String(args.text ?? "").length <= 80) {
     params.arguments = { ...args, slowly: true };
   }
   if (name === "browser_tabs") await viewer("/api/session/tabs", { body: {} }).catch(() => {});
@@ -527,7 +598,25 @@ const handleToolCall = async (msg) => {
     }
     params.arguments = { ...args, index: pagesNow.findIndex((p) => p.id === mine[args.index]) };
   }
-  const known = name === "browser_tabs" && args.action === "new" ? await openedIds() : null;
+  // Each new tab gets a window of its own, like the session's first one.
+  let windowed = false;
+  if (name === "browser_tabs" && args.action === "new" && ownTab) {
+    const windowId = await openWindow("about:blank");
+    if (windowId) {
+      ownTargets.add(windowId);
+      if (await useOwnPage(windowId)) {
+        windowed = true;
+        myTarget = windowId;
+        await announce();
+        if (args.url) await callChild({ name: "browser_navigate", arguments: { url: args.url } }).catch(() => {});
+        params.arguments = { action: "list" };
+      } else {
+        ownTargets.delete(windowId);
+        await closeOwnTabs([windowId]);
+      }
+    }
+  }
+  const known = name === "browser_tabs" && args.action === "new" && !windowed ? await openedIds() : null;
   const shot = name === "browser_take_screenshot";
   if (shot) await overlay({ cmd: "hide" });
   if (name === "browser_tabs" && args.action === "close") await keepBraveOpen();
@@ -547,7 +636,7 @@ const handleToolCall = async (msg) => {
   };
   if (name === "browser_tabs" && args.action === "new" && ownTab) {
     const before = blankTarget;
-    if (!(await adoptNew(known, args.url))) resetTabState();
+    if (!windowed && !(await adoptNew(known, args.url))) resetTabState();
     if (!ownTab || !myTarget) return reply(msg, "Couldn't open your tab. Try again.");
     // The tab the wrapper opened up front is still empty: don't leave it behind.
     const open = before && before !== myTarget && ownTargets.has(before) ? await pages().catch(() => []) : [];

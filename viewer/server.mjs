@@ -63,6 +63,7 @@ const pickFollowed = () => {
 };
 
 // Brings a session's tab forward straight away, over the browser's debugging port.
+// Each session's tab sits in a window of its own, so this raises that window too.
 const activateTab = () => {
   const target = sessions.get(followed)?.target;
   if (!target || activated === target) return;
