@@ -149,7 +149,7 @@ The ChatGPT web and desktop apps can't use it: they only connect to remote MCP s
 
 ## Files and localhost
 
-Brave runs in a container, so it sees only one folder of yours, `~/ridealong-files`. Agents upload from it and downloads land in it. It has the same path inside and out, so the paths agents get back work as they are.
+Brave runs in a container, so it sees only one folder of yours, `~/ridealong-files`. Agents upload from it and downloads land in it. It has the same path inside and out, so the paths agents get back work as they are. When a page load turns into a download, the answer names the saved file. If two sessions download at the same moment and the file cannot be matched to one of them, the answer lists the new files and says so.
 
 `localhost` in this browser is the container, not your server. To let agents open a dev server running on the machine, use `ridealong up --host-network`. Brave then shares the server's network, so you give up the network isolation.
 
