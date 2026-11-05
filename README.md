@@ -10,11 +10,11 @@ Ridealong runs a real, logged-in Brave browser on your server. Claude Code, Code
 git clone https://github.com/Christian-Gennari/ridealong && cd ridealong && ./ridealong up
 ```
 
-[![Claude and Codex plan a trip on Google Flights and Booking.com, then Claude hands over for a human check](docs/images/demo.webp)](docs/demo.mp4)
+[![Claude and Codex plan a trip side by side in their own windows on Google Flights and Booking.com, then both need you and take turns](docs/images/demo.webp)](docs/demo.mp4)
 
-<sub>Real agent sessions on real sites through Ridealong. The steps are scripted, the check is a public test page, and pauses are cut. [Watch the full-size video](docs/demo.mp4).</sub>
+<sub>Real agent sessions on real sites through Ridealong. The steps are scripted, the check is a public test page, pauses are cut and slow stretches are sped up. [Watch the full-size video](docs/demo.mp4).</sub>
 
-![Claude reading a real Grafana dashboard in Ridealong, with two more sessions running](docs/images/working.png)
+![Claude working on a real Grafana dashboard in its own window, with two more sessions running](docs/images/working.png)
 
 ## Why
 
@@ -69,7 +69,7 @@ Want to step in while an agent is working? Press **Control**, or click the scree
 
 When an agent needs you, the whole viewer floods with that agent's colour and says **Your turn**, with the reason and how long it will wait. The browser stays clear in the middle and takes your keyboard straight away. Do what it asks and press **Hand back**.
 
-![The viewer flooded orange while Claude waits at a real GitHub sign-in page](docs/images/your-turn.png)
+![The viewer flooded orange while Claude waits at a real GitHub sign-in page, with Codex queued behind it](docs/images/your-turn.png)
 
 Your agent's app hears about it too: Claude Code, and any client that supports MCP elicitation, shows the reason with a link to the viewer, and the prompt clears itself once you hand back. You can also answer it right there. Claude Code and Codex show it. Antigravity CLI doesn't show these prompts yet, so you rely on push and its chat there. Hermes gets no prompt: it would keep its agent waiting even after you hand back in the viewer, so its agent tells you in chat instead. A client that can't show the prompt declines on its own, and Ridealong keeps waiting for you in the viewer. The viewer also chimes and blinks its tab title.
 
