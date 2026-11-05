@@ -95,6 +95,7 @@ RIDEALONG_TOKEN=$TOKEN
 RIDEALONG_BIND=$BIND
 RIDEALONG_PORT=$PORT
 RIDEALONG_HTTPS_PORT=$HTTPS_PORT
+RIDEALONG_SERVED=${RIDEALONG_SERVED:-0}
 RIDEALONG_RESOLUTION=$RESOLUTION
 RIDEALONG_ALLOWED_HOSTS=$ALLOWED_HOSTS
 RIDEALONG_NOTIFY_URL="$NOTIFY_URL"
@@ -127,7 +128,10 @@ wait_healthy() {
 serve_tailscale() {
   [ "$NETWORK" = tailscale ] || return 0
   tailscale serve status 2>/dev/null | grep -q ":$HTTPS_PORT" && return 0
-  if ! timeout 20 tailscale serve --bg --https="$HTTPS_PORT" "http://127.0.0.1:$PORT" >/dev/null 2>&1; then
+  if timeout 20 tailscale serve --bg --https="$HTTPS_PORT" "http://127.0.0.1:$PORT" >/dev/null 2>&1; then
+    # Remembered so uninstall only removes a link this instance made.
+    sed -i 's/^RIDEALONG_SERVED=.*/RIDEALONG_SERVED=1/' "$CONFIG"
+  else
     echo "Couldn't set up Tailscale's HTTPS link. Turn on HTTPS at https://login.tailscale.com/admin/dns, then run:"
     echo "  sudo tailscale serve --bg --https=$HTTPS_PORT http://127.0.0.1:$PORT"
   fi
@@ -188,6 +192,11 @@ cmd_up() {
     *) die "Unknown network: $NETWORK (use tailscale, ssh or lan)" ;;
   esac
   [ "$NETWORK" = lan ] || TOKEN=
+  # The default instance owns these ports; a named one must not share them.
+  if [ -n "$SUFFIX" ]; then
+    [ "$PORT" != 6086 ] || die "Instance $NAME needs its own viewer port. Add --port N (not 6086)."
+    [ "$NETWORK" != tailscale ] || [ "$HTTPS_PORT" != 6087 ] || die "Instance $NAME needs its own Tailscale port. Add --https-port N (not 6087)."
+  fi
 
   # Created here so they belong to you, not to Docker.
   install -d -m 700 "$PROFILE" "$FILES"
@@ -282,7 +291,8 @@ cmd_uninstall() {
   have_docker
   [ -f "$CONFIG" ] || die "Ridealong isn't set up here."
   if [ -z "$SUFFIX" ]; then cmd_connect --remove; fi
-  [ "${RIDEALONG_NETWORK:-}" = tailscale ] && { timeout 20 tailscale serve --https="${RIDEALONG_HTTPS_PORT:-6087}" off >/dev/null 2>&1 || true; }
+  # A named instance only removes a Tailscale link it created itself.
+  [ "${RIDEALONG_NETWORK:-}" = tailscale ] && { [ -z "$SUFFIX" ] || [ "${RIDEALONG_SERVED:-0}" = 1 ]; } && { timeout 20 tailscale serve --https="${RIDEALONG_HTTPS_PORT:-6087}" off >/dev/null 2>&1 || true; }
   # A named instance's image is its own (ridealong-dev:NAME), so --rmi all is safe.
   compose down --rmi all
   if [ -z "$SUFFIX" ]; then rm -f "$LINK"; fi

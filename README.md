@@ -159,7 +159,7 @@ One container runs Xvfb, a bare window manager, Brave, x11vnc and the viewer, wi
 
 Only the viewer port leaves the container. VNC and Brave's debugging port stay inside it.
 
-To work on Ridealong itself, run `npm test` in `viewer/`, and `scripts/smoke` to boot the real image. Smoke uses its own instance name, so it never touches a Ridealong you already run. To try a build next to your real install, use a named instance: `ridealong --name dev up --build --port 6090`. It has its own container, image, config (`~/.config/ridealong-dev`) and profile (`~/.ridealong-browser-dev`), is never linked into `~/.local/bin`, and is not connected to your agents. Pick a free `--port` (and `--https-port` with Tailscale). To point an agent at it, use `RIDEALONG_NAME=dev ridealong mcp`.
+To work on Ridealong itself, run `npm test` in `viewer/`, and `scripts/smoke` to boot the real image. Smoke uses its own instance name, so it never touches a Ridealong you already run. To try a build next to your real install, use a named instance: `ridealong --name dev up --build --port 6090`. It has its own container, image, config (`~/.config/ridealong-dev`) and profile (`~/.ridealong-browser-dev`), is never linked into `~/.local/bin`, and is not connected to your agents. It must have its own `--port` (and `--https-port` with Tailscale); `ridealong` refuses the default 6086 and 6087, which the main install uses. To point an agent at it, use `RIDEALONG_NAME=dev ridealong mcp`.
 
 ## Security
 
