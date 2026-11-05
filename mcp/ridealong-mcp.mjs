@@ -109,11 +109,13 @@ const ownTargets = new Set();
 let myTarget = null;
 // The blank tab the wrapper opened for this session, until the agent uses it.
 let blankTarget = null;
-const register = () => (session ??= viewer("/api/session", { body: { agent: AGENT } })
+let lastText = "";
+// After a viewer restart the old label, tab and status come back with the new id.
+const register = () => (session ??= viewer("/api/session", { body: { agent: AGENT, label: sessionId ? label : undefined, text: lastText, target: myTarget ?? undefined } })
   .then((r) => {
     label = r.label;
     sessionId = r.id;
-    beat ??= setInterval(heartbeat, 10000).unref();
+    beat ??= setInterval(heartbeat, Number(process.env.RIDEALONG_BEAT_MS || 10000)).unref();
     if (tabReady) announce();
     return r.id;
   })
@@ -395,6 +397,7 @@ const closeOwnTabs = async (ids) => {
 
 // Says whether this session is the one on screen (true when the viewer can't tell).
 const report = async (text, quiet) => {
+  lastText = text;
   const id = await (session ?? register());
   if (!id) return true;
   const r = await viewer("/api/activity", { body: { session: id, text, quiet } }).catch(() => null);

@@ -120,6 +120,23 @@ test("sessions keep unique labels, and a lost one must rejoin", async () => {
   assert.equal((await a.call("/api/session/beat", { id: "nobody" })).status, 404);
 });
 
+test("session ids are never reused, not even after a restart, and a label can be asked for", async () => {
+  const first = api(await start(16212));
+  const old = await first.join("Claude");
+  running.pop().kill();
+  await new Promise((r) => setTimeout(r, 200));
+  const second = api(await start(16212));
+  const fresh = await second.join("Claude");
+  assert.notEqual(fresh, old);
+  assert.equal((await second.call("/api/session/beat", { id: old })).status, 404);
+  // Back with its old label, status and tab, it shows at once.
+  const back = await second.call("/api/session", { agent: "Claude", label: "Claude 2", text: "Reading", target: "ABC123" });
+  assert.equal(back.label, "Claude 2");
+  assert.deepEqual((await second.view()).sessions.map((s) => [s.label, s.text]), [["Claude 2", "Reading"]]);
+  // A taken label falls back to the next free one.
+  assert.equal((await second.call("/api/session", { agent: "Claude", label: "Claude 2" })).label, "Claude 3");
+});
+
 test("idle sessions leave the list, unless they need you", async () => {
   const idle = api(await start(16211, { RIDEALONG_IDLE_HIDE_MIN: "0.005" })); // 300 ms
   const quiet = await idle.join("Claude");
