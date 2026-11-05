@@ -51,6 +51,7 @@ Everything runs in one container, so nothing is installed on the server except t
 | `ridealong update` | Get the latest version, including Brave, and restart |
 | `ridealong connect` | Connect MCP clients you've installed since |
 | `ridealong uninstall` | Remove the container and agent config, keeping your profile and files |
+| `ridealong --name NAME <command>` | Run any command on a separate instance (or set `RIDEALONG_NAME`) |
 
 Brave only updates with the image, which is rebuilt every week, so run `ridealong update` regularly. The viewer reminds you after 14 days.
 
@@ -158,7 +159,7 @@ One container runs Xvfb, a bare window manager, Brave, x11vnc and the viewer, wi
 
 Only the viewer port leaves the container. VNC and Brave's debugging port stay inside it.
 
-To work on Ridealong itself, run `ridealong up --build`, `npm test` in `viewer/`, and `scripts/smoke` to boot the real image.
+To work on Ridealong itself, run `npm test` in `viewer/`, and `scripts/smoke` to boot the real image. Smoke uses its own instance name, so it never touches a Ridealong you already run. To try a build next to your real install, use a named instance: `ridealong --name dev up --build --port 6090`. It has its own container, image, config (`~/.config/ridealong-dev`) and profile (`~/.ridealong-browser-dev`), is never linked into `~/.local/bin`, and is not connected to your agents. Pick a free `--port` (and `--https-port` with Tailscale). To point an agent at it, use `RIDEALONG_NAME=dev ridealong mcp`.
 
 ## Security
 

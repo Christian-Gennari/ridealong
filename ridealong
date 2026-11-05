@@ -3,14 +3,29 @@
 set -euo pipefail
 
 REPO=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
-CONFIG_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/ridealong
+
+# An instance name keeps a second install (a test copy, scripts/smoke) apart from
+# the real one: own compose project, container, image, config and profile. The
+# default name is the one every existing install already uses.
+NAME=${RIDEALONG_NAME:-ridealong}
+if [ "${1:-}" = --name ]; then
+  [ $# -ge 2 ] || { echo "--name needs a value" >&2; exit 2; }
+  NAME=$2; shift 2
+fi
+[[ $NAME =~ ^[a-z0-9][a-z0-9_-]*$ ]] || { echo "Bad name: $NAME (use lowercase letters, digits, - and _)" >&2; exit 1; }
+export RIDEALONG_NAME=$NAME
+if [ "$NAME" = ridealong ]; then SUFFIX=; else SUFFIX=-$NAME; fi
+CONFIG_DIR=${XDG_CONFIG_HOME:-$HOME/.config}/ridealong$SUFFIX
 CONFIG=$CONFIG_DIR/config.env
 LINK=$HOME/.local/bin/ridealong
-CONTAINER=ridealong
+CONTAINER=$NAME
 
 usage() {
   cat <<'HELP'
-Usage: ridealong <command>
+Usage: ridealong [--name NAME] <command>
+
+  --name NAME Manage a separate instance with its own container and config
+              (default: ridealong, or $RIDEALONG_NAME)
 
   up        Start Ridealong, downloading it the first time
               --network auto|tailscale|ssh|lan   How you reach the viewer
@@ -50,7 +65,7 @@ load() {
 compose() {
   local files=(-f "$REPO/compose.yaml")
   [ "${RIDEALONG_HOST_NETWORK:-0}" = 1 ] && files+=(-f "$REPO/compose.host.yaml")
-  docker compose --project-directory "$REPO" --env-file "$CONFIG" "${files[@]}" "$@"
+  docker compose -p "$NAME" --project-directory "$REPO" --env-file "$CONFIG" "${files[@]}" "$@"
 }
 
 running() {
@@ -87,6 +102,8 @@ RIDEALONG_PROFILE=$PROFILE
 RIDEALONG_FILES=$FILES
 RIDEALONG_IDLE_HIDE_MIN=${RIDEALONG_IDLE_HIDE_MIN:-15}
 RIDEALONG_IDLE_RELEASE_MIN=${RIDEALONG_IDLE_RELEASE_MIN:-120}
+RIDEALONG_NAME=$NAME
+RIDEALONG_IMAGE=$IMAGE
 RIDEALONG_UID=$(id -u)
 RIDEALONG_GID=$(id -g)
 RIDEALONG_TZ=$(timezone)
@@ -125,10 +142,14 @@ cmd_up() {
   RESOLUTION=${RIDEALONG_RESOLUTION:-1920x1080}
   ALLOWED_HOSTS=${RIDEALONG_ALLOWED_HOSTS:-}
   NOTIFY_URL=${RIDEALONG_NOTIFY_URL:-}
-  PROFILE=${RIDEALONG_PROFILE:-$HOME/.ridealong-browser}
-  FILES=${RIDEALONG_FILES:-$HOME/ridealong-files}
+  PROFILE=${RIDEALONG_PROFILE:-$HOME/.ridealong-browser$SUFFIX}
+  FILES=${RIDEALONG_FILES:-$HOME/ridealong-files$SUFFIX}
   TOKEN=${RIDEALONG_TOKEN:-}
   local build=no
+  # A named instance gets its own image tag, so building it never retags the
+  # image the real install runs, and it never pulls.
+  IMAGE=${RIDEALONG_IMAGE:-}
+  if [ -n "$SUFFIX" ]; then IMAGE=ridealong-dev:$NAME; build=yes; fi
   while [ $# -gt 0 ]; do
     case "$1" in
       --network) NETWORK=$2; shift 2 ;;
@@ -181,7 +202,8 @@ cmd_up() {
   wait_healthy
   serve_tailscale
 
-  if [ ! -e "$LINK" ]; then
+  # Only the real install owns the command link and the agents' MCP entries.
+  if [ -z "$SUFFIX" ] && [ ! -e "$LINK" ]; then
     mkdir -p "$(dirname "$LINK")"
     ln -s "$REPO/ridealong" "$LINK"
     cmd_connect
@@ -241,6 +263,7 @@ cmd_mcp() {
 }
 
 cmd_connect() {
+  [ -z "$SUFFIX" ] || die "Agents connect to the default instance only. For $NAME, run: RIDEALONG_NAME=$NAME ridealong mcp"
   load
   RIDEALONG_URL=${RIDEALONG_URL:-} "$REPO/scripts/connect-agents" "${1:-}"
 }
@@ -258,10 +281,12 @@ cmd_uninstall() {
   load
   have_docker
   [ -f "$CONFIG" ] || die "Ridealong isn't set up here."
-  cmd_connect --remove
+  if [ -z "$SUFFIX" ]; then cmd_connect --remove; fi
   [ "${RIDEALONG_NETWORK:-}" = tailscale ] && { timeout 20 tailscale serve --https="${RIDEALONG_HTTPS_PORT:-6087}" off >/dev/null 2>&1 || true; }
+  # A named instance's image is its own (ridealong-dev:NAME), so --rmi all is safe.
   compose down --rmi all
-  rm -f "$LINK" "$CONFIG"
+  if [ -z "$SUFFIX" ]; then rm -f "$LINK"; fi
+  rm -f "$CONFIG"
   rmdir "$CONFIG_DIR" 2>/dev/null || true
   echo "Removed. Your Brave profile and shared files are still in ${RIDEALONG_PROFILE} and ${RIDEALONG_FILES}."
 }
