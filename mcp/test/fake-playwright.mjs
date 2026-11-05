@@ -49,6 +49,23 @@ const runCode = async (b, code) => {
   return await new Function(`return (${code})`)()(handle(page));
 };
 
+// Another session acting on the shared browser at the worst moment. A test writes
+// ${FAKE_BROWSER}.race as { kind, times }. For "insert" and "remove", each time the
+// bridge reads the page list (the code with "openerId") the browser then changes under
+// it, so the index it just read is stale: "insert" puts a foreign window first,
+// "remove" closes the first foreign one. "flaky" makes the next reads of the current
+// page's id fail, like a page that is closing.
+const race = (code) => {
+  if (!FILE || !fs.existsSync(`${FILE}.race`)) return null;
+  const r = JSON.parse(fs.readFileSync(`${FILE}.race`, "utf8"));
+  const listing = String(code).includes("openerId");
+  const reading = !listing && String(code).includes("getTargetInfo");
+  if (!r.times || (r.kind === "flaky" ? !reading : !listing)) return null;
+  r.times -= 1;
+  fs.writeFileSync(`${FILE}.race`, JSON.stringify(r));
+  return r.kind;
+};
+
 const lock = async () => {
   if (!FILE) return () => {};
   for (;;) {
@@ -86,12 +103,22 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   const unlock = await lock();
   let b;
   let text;
+  let isError = false;
   try {
   b = load();
+  if (!b.pages.length && (name === "browser_run_code_unsafe" || name === "browser_navigate")) newPage(b, undefined);
+  tabs(b);
+  const actedOn = b.pages.find((p) => p.id === current)?.url;
   if (name === "browser_run_code_unsafe") {
-    if (!b.pages.length) newPage(b, undefined);
-    tabs(b);
-    text = String(args.code).includes("page.url()") ? '"https://secure.example/"' : JSON.stringify(await runCode(b, args.code));
+    const kind = race(args.code);
+    if (kind === "flaky") {
+      isError = true;
+      text = "### Error\nError: page.evaluate: Target page, context or browser has been closed";
+    } else {
+      text = String(args.code).includes("page.url()") ? '"https://secure.example/"' : JSON.stringify(await runCode(b, args.code));
+    }
+    if (kind === "insert") b.pages.unshift({ id: idFor(b.next++), url: `https://foreign.test/${b.next}` });
+    if (kind === "remove") b.pages.splice(b.pages.findIndex((p) => p.url.startsWith("https://foreign.test/")), 1);
   } else if (name === "browser_tabs") {
     const i = args.index ?? b.pages.findIndex((p) => p.id === current);
     if (args.action === "new") newPage(b, args.url);
@@ -122,10 +149,12 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   } else {
     text = `did ${name}`;
   }
+  // Which page each call ran on, for tests that look for calls on someone else's page.
+  if (FILE && name !== "browser_tabs" && name !== "browser_run_code_unsafe") (b.acted ??= []).push({ name, url: actedOn });
   save(b);
   } finally {
     unlock();
   }
-  const answer = () => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text }] } }) + "\n");
+  const answer = () => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { isError, content: [{ type: "text", text }] } }) + "\n");
   setTimeout(answer, name === "browser_wait_for" ? Number(args.time) * 1000 : 0);
 });

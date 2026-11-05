@@ -223,12 +223,34 @@ const ownOnly = (text, all, listing) => {
 };
 const hasTabList = (text) => /^### (Open tabs|Result)$/m.test(text) && /^- \d+:/m.test(text);
 
+// Playwright numbers the tabs of every session, and other sessions open and close
+// windows at any moment, so an index read a moment ago can point at someone else's
+// page by the time it is used. So select by index, then check by target id which page
+// became current, and look again if it was the wrong one. Only this session's calls
+// run in between, so a wrong pick never has a page acted on.
+const selectOwn = async (id, listWaitMs = 0) => {
+  const listBy = Date.now() + listWaitMs;
+  for (let tries = 0; tries < 5;) {
+    const at = (await allTargets(2000)).findIndex((p) => p.id === id);
+    if (at < 0) {
+      if (Date.now() >= listBy) return false;
+      await sleep(50);
+      continue;
+    }
+    tries += 1;
+    await callChild({ name: "browser_tabs", arguments: { action: "select", index: at } }, 3000).catch(() => {});
+    if ((await currentTarget()) === id) return true;
+  }
+  return false;
+};
+
 // Before each call, make Playwright's current page one of ours. selectTab brings
 // the tab to the front, so announce afterwards to give the viewer's screen back.
+// A current page we can't read (it is closing) counts as not ours.
 const pinTab = async () => {
   if (!ownTargets.size) return;
   const now = await currentTarget();
-  if (!now || ownTargets.has(now)) return;
+  if (now && ownTargets.has(now)) return;
   const pagesNow = await allTargets();
   const all = pagesNow.map((p) => p.id);
   if (!all.length) return;
@@ -240,8 +262,7 @@ const pinTab = async () => {
     return;
   }
   if (!ownTargets.has(myTarget)) myTarget = [...ownTargets].pop();
-  await callChild({ name: "browser_tabs", arguments: { action: "select", index: all.indexOf(myTarget) } }, 3000).catch(() => {});
-  if ((await currentTarget()) !== myTarget) throw new Error("Couldn't get back to your own tab, so this was refused. Try again.");
+  if (!(await selectOwn(myTarget))) throw new Error("Couldn't get back to your own tab, so this was refused. Try again.");
   await announce();
 };
 
@@ -293,18 +314,7 @@ const openWindow = async (url) => {
 };
 
 // Waits until Playwright lists the page, then makes it the current one.
-const useOwnPage = async (id) => {
-  for (let i = 0; i < 40; i += 1) {
-    const all = (await allTargets(2000)).map((p) => p.id);
-    const at = all.indexOf(id);
-    if (at >= 0) {
-      await callChild({ name: "browser_tabs", arguments: { action: "select", index: at } }, 3000).catch(() => {});
-      return (await currentTarget()) === id;
-    }
-    await sleep(50);
-  }
-  return false;
-};
+const useOwnPage = (id) => selectOwn(id, 2000);
 
 // Brave restarted or someone closed our tab. Without our own tab, this session
 // would land in whichever tab Playwright picks, which may be another session's.
@@ -656,15 +666,34 @@ const handleToolCall = async (msg) => {
     params.arguments = { ...args, slowly: true };
   }
   if (name === "browser_tabs") await viewer("/api/session/tabs", { body: {} }).catch(() => {});
-  // The agent counts its own tabs only; Playwright counts every session's.
-  if (name === "browser_tabs" && ownTab && args.index !== undefined && (args.action === "select" || args.action === "close")) {
+  // The agent counts its own tabs only; Playwright counts every session's. Work out
+  // which tab is meant here, then act on it by id: an index passed on to Playwright
+  // could point at another session's tab after a window opens or closes elsewhere.
+  if (name === "browser_tabs" && ownTab && (args.action === "close" || (args.action === "select" && args.index !== undefined))) {
     const pagesNow = await allTargets();
     adoptPopups(pagesNow);
     const mine = pagesNow.map((p) => p.id).filter((id) => ownTargets.has(id));
-    if (!Number.isInteger(args.index) || args.index < 0 || args.index >= mine.length) {
+    let id;
+    if (args.index === undefined) id = await currentTarget();
+    else if (!Number.isInteger(args.index) || args.index < 0 || args.index >= mine.length) {
       return reply(msg, `Tab ${args.index} isn't one of your tabs, so this was refused. You have ${mine.length} tab${mine.length === 1 ? "" : "s"}, numbered 0 to ${mine.length - 1}. Use browser_tabs with action "list" to see them.`);
+    } else id = mine[args.index];
+    if (!id || !ownTargets.has(id)) return reply(msg, "Couldn't tell which of your tabs this means, so it was refused. Try again.");
+    if (args.action === "select") {
+      if (!(await selectOwn(id))) return reply(msg, "Couldn't switch to that tab, so this was refused. Try again.");
+    } else {
+      await closeOwnTabs([id]);
+      // Wait until Playwright has dropped the page, so its next pick is settled.
+      for (let i = 0; i < 40 && (await allTargets(2000)).some((p) => p.id === id); i += 1) await sleep(50);
+      ownTargets.delete(id);
+      if (myTarget === id) myTarget = [...ownTargets].pop() ?? null;
+      if (!ownTargets.size) {
+        resetTabState();
+        return reply(msg, "Closed your tab. Your next browser call opens a new one.");
+      }
+      await pinTab();
     }
-    params.arguments = { ...args, index: pagesNow.findIndex((p) => p.id === mine[args.index]) };
+    params.arguments = { action: "list" };
   }
   // Each new tab gets a window of its own, like the session's first one.
   let windowed = false;
@@ -687,7 +716,11 @@ const handleToolCall = async (msg) => {
   const known = name === "browser_tabs" && args.action === "new" && !windowed ? await openedIds() : null;
   const shot = name === "browser_take_screenshot";
   if (shot) await overlay({ cmd: "hide" });
-  if (name === "browser_tabs" && args.action === "close") await keepBraveOpen();
+  // The steps above took a while: check once more that the page is ours.
+  if (name !== "browser_tabs" && ownTargets.size) {
+    const now = await currentTarget();
+    if (!now || !ownTargets.has(now)) await pinTab();
+  }
   const before = listFiles();
   const answer = absolutePaths(await callChild(params));
   await noteDownload(answer, before);

@@ -596,3 +596,79 @@ test("two new files during a download: the answer says it is not sure", async ()
   assert.match(text, /not sure which one is yours/);
   assert.ok(text.includes("a.csv") && text.includes("b.csv"), text);
 });
+
+// Other sessions open and close windows all the time. The fake changes the shared
+// browser right after the bridge reads the page list, so an index read a moment ago
+// is stale when it is used. No call may ever run on a page that isn't the session's.
+const racingSessions = async (windows) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-browser-"));
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const FAKE_BROWSER = path.join(dir, "browser.json");
+  fs.writeFileSync(FAKE_BROWSER, JSON.stringify({ pages: windows ? [{ id: "ABCDEF0123456789ABCDEF0123456789", url: "about:blank" }] : [], next: windows ? 1 : 0 }));
+  const a = await startBridge({ FAKE_BROWSER, ...(windows && { FAKE_WINDOWS: "1" }) });
+  const b = await startBridge({ FAKE_BROWSER, ...(windows && { FAKE_WINDOWS: "1" }) });
+  const state = () => JSON.parse(fs.readFileSync(FAKE_BROWSER, "utf8"));
+  const arm = (kind, times) => fs.writeFileSync(`${FAKE_BROWSER}.race`, JSON.stringify({ kind, times }));
+  const edit = (f) => { const x = state(); f(x); fs.writeFileSync(FAKE_BROWSER, JSON.stringify(x)); };
+  const noStray = () => {
+    const { acted, pages } = state();
+    assert.ok(acted.length > 0);
+    assert.deepEqual(acted.filter((c) => c.url?.startsWith("https://foreign.test/")), [], "a call ran on a foreign page");
+    return pages.map((p) => p.url);
+  };
+  return { a, b, state, edit, arm, noStray };
+};
+
+for (const windows of [false, true]) {
+  const mode = windows ? "windows" : "shared window";
+  test(`a window opening elsewhere while a session switches tabs never puts a call on the wrong page (${mode})`, async () => {
+    const { a, b, arm, noStray } = await racingSessions(windows);
+    await a.call("browser_navigate", { url: "https://a.test/1" });
+    await b.call("browser_navigate", { url: "https://b.test/1" });
+    arm("insert", 2);
+    await a.call("browser_tabs", { action: "new", url: "https://a.test/2" });
+    arm("insert", 2);
+    const picked = await a.call("browser_tabs", { action: "select", index: 0 });
+    assert.deepEqual(listed(picked), ["- 0: (current) [](https://a.test/1)", "- 1: [](https://a.test/2)"]);
+    await a.call("browser_click", { element: "x" });
+    arm("insert", 2);
+    await a.call("browser_tabs", { action: "select", index: 1 });
+    await a.call("browser_navigate", { url: "https://a.test/2b" });
+    await b.call("browser_navigate", { url: "https://b.test/2" });
+    const urls = noStray();
+    assert.ok(urls.includes("https://a.test/1") && urls.includes("https://a.test/2b") && urls.includes("https://b.test/2"));
+    assert.ok(urls.filter((u) => u.startsWith("https://foreign.test/")).length >= 4, "the foreign windows are left alone");
+  });
+
+  test(`closing a tab while a window opens or closes elsewhere closes the right one and keeps the session on its own page (${mode})`, async () => {
+    const { a, b, arm, noStray } = await racingSessions(windows);
+    await a.call("browser_navigate", { url: "https://a.test/1" });
+    await b.call("browser_navigate", { url: "https://b.test/1" });
+    await a.call("browser_tabs", { action: "new", url: "https://a.test/2" });
+    arm("insert", 3);
+    const closed = await a.call("browser_tabs", { action: "close", index: 0 });
+    assert.deepEqual(listed(closed), ["- 0: (current) [](https://a.test/2)"]);
+    await a.call("browser_navigate", { url: "https://a.test/3" });
+    arm("insert", 3);
+    await a.call("browser_tabs", { action: "new", url: "https://a.test/4" });
+    arm("remove", 2);
+    await a.call("browser_tabs", { action: "close" });
+    await a.call("browser_navigate", { url: "https://a.test/5" });
+    const urls = noStray();
+    assert.ok(!urls.includes("https://a.test/1") && !urls.includes("https://a.test/4"), "the named tabs are closed");
+    assert.ok(urls.includes("https://a.test/5") && urls.includes("https://b.test/1"), "the other tabs stay");
+  });
+}
+
+test("a current page that can't be read for a moment is not taken as the session's own", async () => {
+  const { a, b, edit, arm, noStray } = await racingSessions(false);
+  // b's page comes first, so it is the one Playwright falls back to when a's closes.
+  await b.call("browser_navigate", { url: "https://b.test/1" });
+  await a.call("browser_navigate", { url: "https://a.test/1" });
+  await a.call("browser_tabs", { action: "new", url: "https://a.test/2" });
+  // Someone closes the page a is on, and the next read of the current page fails.
+  edit((x) => { x.pages = x.pages.filter((p) => p.url !== "https://a.test/2"); });
+  arm("flaky", 1);
+  await a.call("browser_navigate", { url: "https://a.test/3" });
+  assert.deepEqual(noStray().sort(), ["https://a.test/3", "https://b.test/1"]);
+});
