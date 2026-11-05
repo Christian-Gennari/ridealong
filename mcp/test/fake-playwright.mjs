@@ -60,7 +60,7 @@ const race = (code) => {
   const r = JSON.parse(fs.readFileSync(`${FILE}.race`, "utf8"));
   const listing = String(code).includes("openerId");
   const reading = !listing && String(code).includes("getTargetInfo");
-  if (!r.times || (r.kind === "flaky" ? !reading : !listing)) return null;
+  if (!r.times || (r.kind === "listerr" ? code !== "getTargetInfo-list" : code === "getTargetInfo-list" || (r.kind === "flaky" ? !reading : !listing))) return null;
   r.times -= 1;
   fs.writeFileSync(`${FILE}.race`, JSON.stringify(r));
   return r.kind;
@@ -128,6 +128,11 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
       current = b.pages[Math.min(i, b.pages.length - 1)]?.id ?? null;
     }
     text = `### Result\n${tabs(b)}`;
+    // A window another session is closing makes the list of every tab fail.
+    if (args.action === "list" && race("getTargetInfo-list") === "listerr") {
+      isError = true;
+      text = "### Error\nError: browserBackend.callTool: Target page, context or browser has been closed";
+    }
   } else if (name === "browser_navigate") {
     if (!b.pages.length) newPage(b, undefined);
     tabs(b);

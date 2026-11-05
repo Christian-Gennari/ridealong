@@ -672,3 +672,12 @@ test("a current page that can't be read for a moment is not taken as the session
   await a.call("browser_navigate", { url: "https://a.test/3" });
   assert.deepEqual(noStray().sort(), ["https://a.test/3", "https://b.test/1"]);
 });
+
+test("a tab list that fails because another session is closing a window is read again", async () => {
+  const { a, arm } = await racingSessions(false);
+  await a.call("browser_navigate", { url: "https://a.test/1" });
+  arm("listerr", 2);
+  const answer = await a.call("browser_tabs", { action: "list" });
+  assert.ok(!answer.result.isError);
+  assert.deepEqual(listed(answer), ["- 0: (current) [](https://a.test/1)"]);
+});

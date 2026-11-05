@@ -147,7 +147,7 @@ const announce = async () => {
   if (id && myTarget) await viewer("/api/session/target", { body: { id, target: myTarget } }).catch(() => {});
 };
 const idsIn = (r) => JSON.stringify(r?.result ?? "").match(/\b[0-9A-F]{32}\b/g) ?? [];
-const currentTarget = async () => idsIn(await callChild({ name: "browser_run_code_unsafe", arguments: { code: TARGET_CODE } }, 2000).catch(() => null))[0] ?? null;
+const currentTarget = async () => idsIn(await callChild({ name: "browser_run_code_unsafe", arguments: { code: TARGET_CODE } }, 6000).catch(() => null))[0] ?? null;
 // With adopt, Playwright's current page is a tab we just opened. Without it, we
 // only announce a current page that is already ours.
 const shareTarget = async (adopt) => {
@@ -163,17 +163,19 @@ const shareTarget = async (adopt) => {
 // Every page in the shared browser, in the order Playwright numbers its tabs.
 // "id" or "id:openerId" for a page that another page opened.
 const ALL_TARGETS_CODE = `async (page) => {
-  const ids = [];
-  for (const p of page.context().pages()) {
+  // All at once: with many sessions starting together, one by one is too slow.
+  return await Promise.all(page.context().pages().map(async (p) => {
     const cdp = await p.context().newCDPSession(p);
-    const { targetId, openerId } = (await cdp.send("Target.getTargetInfo")).targetInfo;
-    ids.push(openerId ? targetId + ":" + openerId : targetId);
-    await cdp.detach();
-  }
-  return ids;
+    try {
+      const { targetId, openerId } = (await cdp.send("Target.getTargetInfo")).targetInfo;
+      return openerId ? targetId + ":" + openerId : targetId;
+    } finally {
+      await cdp.detach().catch(() => {});
+    }
+  }));
 }`;
 const PAIR = /\b[0-9A-F]{32}(?::[0-9A-F]{32})?\b/g;
-const allTargets = async (timeout = 4000) => {
+const allTargets = async (timeout = 6000) => {
   const r = await callChild({ name: "browser_run_code_unsafe", arguments: { code: ALL_TARGETS_CODE } }, timeout).catch(() => null);
   return (JSON.stringify(r?.result ?? "").match(PAIR) ?? []).map((s) => { const [id, opener] = s.split(":"); return { id, opener }; });
 };
@@ -191,7 +193,7 @@ const adoptPopups = (pagesNow) => {
 // One last look for popups before the session's tabs are closed.
 const syncPopups = async () => {
   if (!ownTargets.size) return;
-  adoptPopups(await allTargets(2000));
+  adoptPopups(await allTargets());
   adoptPopups((await pages().catch(() => [])).map((t) => ({ id: t.id, opener: t.openerId })));
 };
 
@@ -231,7 +233,7 @@ const hasTabList = (text) => /^### (Open tabs|Result)$/m.test(text) && /^- \d+:/
 const selectOwn = async (id, listWaitMs = 0) => {
   const listBy = Date.now() + listWaitMs;
   for (let tries = 0; tries < 5;) {
-    const at = (await allTargets(2000)).findIndex((p) => p.id === id);
+    const at = (await allTargets()).findIndex((p) => p.id === id);
     if (at < 0) {
       if (Date.now() >= listBy) return false;
       await sleep(50);
@@ -314,7 +316,7 @@ const openWindow = async (url) => {
 };
 
 // Waits until Playwright lists the page, then makes it the current one.
-const useOwnPage = (id) => selectOwn(id, 2000);
+const useOwnPage = (id) => selectOwn(id, 8000);
 
 // Brave restarted or someone closed our tab. Without our own tab, this session
 // would land in whichever tab Playwright picks, which may be another session's.
@@ -348,10 +350,14 @@ const adoptNew = async (before, url) => {
   const now = before ? await pages().catch(() => null) : null;
   const fresh = (now ?? []).filter((t) => !before.includes(t.id) && !ownTargets.has(t.id));
   if (!fresh.length) { await shareTarget(true); return true; }
-  const rank = (t) => (url && sameUrl(t.url, url) ? 0 : t.url === "about:blank" || !url ? 1 : 2);
+  // Playwright's own `new` made its page current. That one is ours, not a tab another
+  // session opened at the same moment.
+  const mine = await currentTarget();
+  const rank = (t) => (t.id === mine ? -1 : url && sameUrl(t.url, url) ? 0 : t.url === "about:blank" || !url ? 1 : 2);
   // A blank tab only counts while the requested URL isn't showing anywhere yet.
+  const ownNew = fresh.filter((t) => rank(t) === -1);
   const exact = fresh.filter((t) => rank(t) === 0);
-  for (const t of exact.length ? exact : fresh.filter((t) => rank(t) === 1)) {
+  for (const t of ownNew.length ? ownNew : exact.length ? exact : fresh.filter((t) => rank(t) === 1)) {
     try {
       await viewer("/api/session/target", { body: { id, target: t.id } });
     } catch (e) {
@@ -684,7 +690,7 @@ const handleToolCall = async (msg) => {
     } else {
       await closeOwnTabs([id]);
       // Wait until Playwright has dropped the page, so its next pick is settled.
-      for (let i = 0; i < 40 && (await allTargets(2000)).some((p) => p.id === id); i += 1) await sleep(50);
+      for (let i = 0; i < 40 && (await allTargets()).some((p) => p.id === id); i += 1) await sleep(50);
       ownTargets.delete(id);
       if (myTarget === id) myTarget = [...ownTargets].pop() ?? null;
       if (!ownTargets.size) {
@@ -722,7 +728,14 @@ const handleToolCall = async (msg) => {
     if (!now || !ownTargets.has(now)) await pinTab();
   }
   const before = listFiles();
-  const answer = absolutePaths(await callChild(params));
+  let answer = await callChild(params);
+  // A list reads every session's tabs, so a window another session is closing at that
+  // moment fails it. Looking again is harmless.
+  for (let i = 0; i < 3 && name === "browser_tabs" && params.arguments?.action === "list" && /has been closed/.test(JSON.stringify(answer.result ?? "")); i += 1) {
+    await sleep(100);
+    answer = await callChild(params);
+  }
+  answer = absolutePaths(answer);
   await noteDownload(answer, before);
   if (shot) await overlay({ cmd: "show" });
   let orphan = null;
