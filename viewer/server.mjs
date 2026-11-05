@@ -2,6 +2,7 @@
 // shared state (what the agent is doing, who has control). Agents reach it
 // through mcp/ridealong-mcp.mjs and keep working if it is down.
 import { execFile } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
@@ -27,7 +28,6 @@ const streams = new Set();
 let waiters = [];
 let nextTurn = Date.now(); // never reused, so an agent can tell a restart from an answer
 const answered = new Map(); // turn id to whether the human blocked it
-let nextSession = 0;
 let followed = null; // the session whose tab is in front
 let pinned = false;  // the human chose this, so don't move on when it goes quiet
 let shownTurn = null; // the handover we've already brought forward
@@ -327,12 +327,21 @@ const api = {
     json(res, 200, { go: canAct() });
   },
   "POST /api/session": async (req, res) => {
-    const { agent } = await readBody(req);
+    const { agent, label: wanted, text, target } = await readBody(req);
     const base = clip(agent, 24) || "Agent";
     const taken = new Set([...sessions.values()].map((x) => x.label));
-    let n = 1;
-    while (taken.has(n === 1 ? base : `${base} ${n}`)) n += 1;
-    const session = { id: String(++nextSession), label: n === 1 ? base : `${base} ${n}`, text: "", at: 0, seen: Date.now() };
+    // A wrapper that outlived a viewer restart asks for its old label back.
+    let name = clip(wanted, 30);
+    if (!name || taken.has(name)) {
+      let n = 1;
+      while (taken.has(n === 1 ? base : `${base} ${n}`)) n += 1;
+      name = n === 1 ? base : `${base} ${n}`;
+    }
+    // Random ids are never reused, so a wrapper can tell a restart from a 404.
+    const session = { id: crypto.randomUUID(), label: name, text: "", at: 0, seen: Date.now() };
+    // Its last status and tab come back too, so it shows in the dropdown at once.
+    if (typeof text === "string" && text) { session.text = clip(text, 80); session.at = Date.now(); }
+    if (typeof target === "string" && /^[A-Z0-9]+$/i.test(target)) session.target = target;
     sessions.set(session.id, session);
     expectAgentTab(AGENT_START_MS);
     json(res, 200, { id: session.id, label: session.label });

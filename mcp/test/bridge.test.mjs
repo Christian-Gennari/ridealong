@@ -20,6 +20,7 @@ after(() => { bridges.forEach((b) => b.kill()); servers.forEach((s) => s.close()
 const startBridge = async (env, cwd) => {
   const seen = [];
   let nextSession = 0;
+  let known = new Set();
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (c) => { body += c; });
@@ -27,7 +28,12 @@ const startBridge = async (env, cwd) => {
       const path = req.url.split("?")[0];
       seen.push({ path, body: body ? JSON.parse(body) : null });
       const send = (o) => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(o)); };
-      if (path === "/api/session") return send({ id: String(++nextSession), label: "Claude" });
+      if (path === "/api/session") {
+        const id = `s${++nextSession}`;
+        known.add(id);
+        return send({ id, label: seen.at(-1).body.label || "Claude" });
+      }
+      if (path === "/api/session/beat" && !known.has(seen.at(-1).body.id)) { res.writeHead(404); return res.end("{}"); }
       if (path === "/api/gate") return send({ go: true });
       if (path === "/api/rules") return send({ hosts: [] });
       if (path === "/json/list") return send([{ id: TARGET, type: "page" }, { id: "OTHER", type: "page" }]);
@@ -57,7 +63,8 @@ const startBridge = async (env, cwd) => {
     child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }) + "\n");
   });
   const count = (path) => seen.filter((x) => x.path === path).length;
-  return { call, calls, seen, count };
+  const restartViewer = () => { known = new Set(); };
+  return { call, calls, seen, count, restartViewer };
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -83,6 +90,20 @@ test("an idle session gives back its tab and joins again on the next call", asyn
   assert.equal(bridge.calls.filter((c) => c.call === "browser_tabs" && c.action === "new").length, 2);
   // The note comes once.
   assert.deepEqual(texts(await bridge.call("browser_snapshot")), ["did browser_snapshot"]);
+});
+
+test("a restarted viewer gets the session back with its label, status and tab", async () => {
+  const bridge = await startBridge({ RIDEALONG_BEAT_MS: "100" });
+  await bridge.call("browser_navigate", { url: "https://example.com" });
+  assert.equal(bridge.count("/api/session"), 1);
+  bridge.restartViewer();
+  await sleep(500);
+  const joins = bridge.seen.filter((x) => x.path === "/api/session");
+  assert.equal(joins.length, 2);
+  assert.equal(joins[0].body.label, undefined, "the first join asks for no label");
+  assert.equal(joins[1].body.label, "Claude");
+  assert.ok(joins[1].body.text, "the last status comes along");
+  assert.equal(joins[1].body.target, TARGET);
 });
 
 test("a session isn't released while a call is still running", async () => {

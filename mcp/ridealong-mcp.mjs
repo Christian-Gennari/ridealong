@@ -104,11 +104,13 @@ let label = AGENT;
 let beat = null;
 let tabReady = false;
 let myTarget = null;
-const register = () => (session ??= viewer("/api/session", { body: { agent: AGENT } })
+let lastText = "";
+// After a viewer restart the old label, tab and status come back with the new id.
+const register = () => (session ??= viewer("/api/session", { body: { agent: AGENT, label: sessionId ? label : undefined, text: lastText, target: myTarget ?? undefined } })
   .then((r) => {
     label = r.label;
     sessionId = r.id;
-    beat ??= setInterval(heartbeat, 10000).unref();
+    beat ??= setInterval(heartbeat, Number(process.env.RIDEALONG_BEAT_MS || 10000)).unref();
     if (tabReady) shareTarget();
     return r.id;
   })
@@ -185,6 +187,7 @@ const closedTab = () => {
 };
 
 const report = async (text, quiet) => {
+  lastText = text;
   const id = await (session ?? register());
   if (id) await viewer("/api/activity", { body: { session: id, text, quiet } }).catch(() => {});
 };
