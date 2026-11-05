@@ -680,7 +680,8 @@ const handleToolCall = async (msg) => {
     adoptPopups(pagesNow);
     const mine = pagesNow.map((p) => p.id).filter((id) => ownTargets.has(id));
     let id;
-    if (args.index === undefined) id = await currentTarget();
+    // The pin above made an own tab current; if it can't be read, that is myTarget.
+    if (args.index === undefined) id = (await currentTarget()) ?? myTarget;
     else if (!Number.isInteger(args.index) || args.index < 0 || args.index >= mine.length) {
       return reply(msg, `Tab ${args.index} isn't one of your tabs, so this was refused. You have ${mine.length} tab${mine.length === 1 ? "" : "s"}, numbered 0 to ${mine.length - 1}. Use browser_tabs with action "list" to see them.`);
     } else id = mine[args.index];
