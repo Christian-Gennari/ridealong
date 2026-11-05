@@ -68,7 +68,7 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
   const msg = JSON.parse(line);
   if (msg.method !== "tools/call") return;
   const { name, arguments: args = {} } = msg.params;
-  console.error(JSON.stringify({ call: name, action: args.action }));
+  console.error(JSON.stringify({ call: name, action: args.action, slowly: args.slowly }));
   // One call at a time across fake processes, like one browser serving them in turn.
   const unlock = await lock();
   let b;

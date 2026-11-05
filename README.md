@@ -25,7 +25,7 @@ Agents get stuck wherever there's no API: dashboards, admin panels, anything beh
 - **Human handover:** the agent asks, the whole screen tells you it's your turn, you hand back. It waits for you and resumes on its own.
 - **Safe by default:** the viewer is locked while agents work, and agents pause when you take control.
 - **Plug and play:** one command connects any MCP client. There are no providers or plugins to add, and any model works.
-- **Parallel agents:** every session gets its own tab, so they can work at the same time. Switch between them from a dropdown.
+- **Parallel agents:** every session gets its own browser window, so they can work at the same time, even while you watch another one. Switch between them from a dropdown.
 
 ## Install
 
@@ -94,7 +94,7 @@ Rules protect the page in front of the agent. They can't stop a script on anothe
 
 ## Parallel agents
 
-Every agent session gets its own tab and its own label (Claude, Claude 2, and so on), so sessions can work at the same time without touching each other's pages. They share one browser, so they also share logins. The tabs are grouped by session and close when the session ends. Ridealong tracks each session's tabs by id, so if an agent opens and closes tabs, its next call still lands in one of its own tabs, and ending the session closes exactly the tabs it opened. The tab list an agent sees (the "Open tabs" block and `browser_tabs`) shows only its own tabs, numbered from 0. `select` and `close` use those numbers, and a number outside the list is refused. Pages that its tabs open (`target=_blank`, `window.open`) belong to the session and close with it. The viewer gives each tab to one session only, so sessions that open tabs at the same moment can't take the same one.
+Every agent session gets its own window (one tab in it to start with) and its own label (Claude, Claude 2, and so on), so sessions can work at the same time without touching each other's pages. They share one browser profile, so they also share logins. A window that isn't on screen keeps working, because a hidden tab in a shared window would get no clicks or key presses. A tab a session opens with `browser_tabs` new gets a window of its own too. The tabs are grouped by session and close when the session ends. Ridealong tracks each session's tabs by id, so if an agent opens and closes tabs, its next call still lands in one of its own tabs, and ending the session closes exactly the tabs it opened. The tab list an agent sees (the "Open tabs" block and `browser_tabs`) shows only its own tabs, numbered from 0. `select` and `close` use those numbers, and a number outside the list is refused. Pages that its tabs open (`target=_blank`, `window.open`) belong to the session and close with it. The viewer gives each tab to one session only, so sessions that open tabs at the same moment can't take the same one.
 
 The screen stays on one session rather than flipping between them. With two or more running, the **sessions** dropdown in the top bar shows what each one is doing and which one needs you. Pick one to watch it, or in Control mode click its tab in Brave: the two always stay in sync. If several sessions need you, their requests queue, and each comes forward in turn.
 
