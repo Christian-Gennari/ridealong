@@ -347,3 +347,53 @@ test("the answers to select, new and close list only the session's own tabs", as
   assert.deepEqual(listed(last), []);
   assert.ok(!texts(last).join("\n").includes("b.test"));
 });
+
+const oneBridge = async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-browser-"));
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const FAKE_BROWSER = path.join(dir, "browser.json");
+  fs.writeFileSync(FAKE_BROWSER, JSON.stringify({ pages: [], next: 0 }));
+  return startBridge({ FAKE_BROWSER });
+};
+const SHARED = /Two workers seem to share this browser session/;
+
+test("two workers interleaving on one connection get a note, once", async () => {
+  const bridge = await oneBridge();
+  // Worker A and worker B each open a tab, then their calls overlap and they re-select.
+  await bridge.call("browser_tabs", { action: "new", url: "https://a.test/" });
+  await bridge.call("browser_tabs", { action: "new", url: "https://b.test/" });
+  const round = () => Promise.all([
+    bridge.call("browser_wait_for", { time: 0.15 }),
+    bridge.call("browser_tabs", { action: "select", index: 0 }),
+    bridge.call("browser_tabs", { action: "select", index: 1 }),
+  ]);
+  const answers = [...(await round()), ...(await round())];
+  const noted = answers.filter((a) => SHARED.test(texts(a).join("\n")));
+  assert.equal(noted.length, 1, "the note shows in one answer, not every answer");
+  assert.match(texts(noted[0])[0], /one subagent at a time, or run each worker as its own client process/);
+  // At most once a minute: more overlapping calls don't repeat it.
+  assert.ok(!(await round()).some((a) => SHARED.test(texts(a).join("\n"))));
+});
+
+test("one agent using two tabs one call after the other gets no note", async () => {
+  const bridge = await oneBridge();
+  const all = [];
+  all.push(await bridge.call("browser_navigate", { url: "https://a.test/" }));
+  all.push(await bridge.call("browser_tabs", { action: "new", url: "https://b.test/" }));
+  for (let i = 0; i < 6; i += 1) {
+    all.push(await bridge.call("browser_tabs", { action: "select", index: i % 2 }));
+    all.push(await bridge.call("browser_snapshot"));
+  }
+  assert.ok(!all.some((a) => SHARED.test(texts(a).join("\n"))));
+});
+
+test("calls on one connection run one at a time, in order", async () => {
+  const bridge = await oneBridge();
+  await bridge.call("browser_navigate", { url: "https://a.test/" });
+  const order = [];
+  const slow = bridge.call("browser_wait_for", { time: 0.3 }).then(() => order.push("slow"));
+  await sleep(50);
+  const quick = bridge.call("browser_snapshot").then(() => order.push("quick"));
+  await Promise.all([slow, quick]);
+  assert.deepEqual(order, ["slow", "quick"]);
+});

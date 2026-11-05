@@ -466,17 +466,67 @@ if (IDLE_RELEASE_MINUTES > 0 && !PLAIN) {
 
 // Tells the agent, once, in the first answer after a release.
 const withNotice = (answer) => {
-  if (!notice || !answer.result?.content) return answer;
-  answer.result.content.unshift({ type: "text", text: notice });
-  notice = null;
+  if (!answer.result?.content) return answer;
+  if (sharedNote) {
+    answer.result.content.unshift({ type: "text", text: sharedNote });
+    sharedNote = null;
+  }
+  if (notice) {
+    answer.result.content.unshift({ type: "text", text: notice });
+    notice = null;
+  }
   return answer;
 };
 
+// Two subagents of one client share this connection and so one current tab. We
+// can't see who is calling, so look for what only two workers produce: calls that
+// arrive while another is still running, and tab switches (select/new), within a
+// minute and with two or more of our own tabs open. One agent working through its
+// tabs one call at a time never overlaps, so it never trips this.
+const SHARED_WINDOW_MS = 60000;
+const SHARED_NOTE = "Two workers seem to share this browser session (one MCP connection = one current tab). " +
+  "Give browser work to one subagent at a time, or run each worker as its own client process.";
+let sharedNote = null;
+let sharedNoteAt = 0;
+const overlaps = [];
+const switches = [];
+const recent = (list, now) => {
+  while (list.length && now - list[0] > SHARED_WINDOW_MS) list.shift();
+  return list.length;
+};
+const watchShared = (msg, overlapped) => {
+  const now = Date.now();
+  const { name, arguments: args = {} } = msg.params;
+  if (overlapped) overlaps.push(now);
+  if (name === "browser_tabs" && (args.action === "select" || args.action === "new")) switches.push(now);
+  if (ownTargets.size < 2) return;
+  if (recent(overlaps, now) >= 2 && recent(switches, now) >= 2 && now - sharedNoteAt >= SHARED_WINDOW_MS) {
+    sharedNote = SHARED_NOTE;
+    sharedNoteAt = now;
+  }
+};
+
+// One call at a time per connection, so two workers' calls never interleave inside
+// the pin-then-act sequence of the other. A hand over waits on a person for minutes
+// and touches no page, so it doesn't hold the line.
+let line = Promise.resolve();
+
 const handleCall = async (msg) => {
+  const overlapped = busy > 0;
   busy += 1;
   try {
-    await releasing;
-    return await handleToolCall(msg);
+    watchShared(msg, overlapped);
+    if (msg.params.name === "browser_handover") {
+      await releasing;
+      return await handleToolCall(msg);
+    }
+    const turn = line.then(async () => {
+      await releasing;
+      return handleToolCall(msg);
+    });
+    // The next call starts when this one ends, however it ends.
+    line = turn.catch(() => {});
+    return await turn;
   } finally {
     busy -= 1;
     lastCall = Date.now();
