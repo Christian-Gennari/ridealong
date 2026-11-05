@@ -19,10 +19,11 @@ after(() => { bridges.forEach((b) => b.kill()); servers.forEach((s) => s.close()
 
 // Each bridge gets its own fake viewer and debugging port, which record every request.
 // With env.FAKE_BROWSER set, the debugging port reflects the fake browser's shared pages.
-const startBridge = async (env = {}, cwd, routes = {}) => {
+const startBridge = async (env = {}, cwd, routes = {}, hooks = {}) => {
   const browser = () => JSON.parse(fs.readFileSync(env.FAKE_BROWSER, "utf8"));
   const edit = (f) => { const b = browser(); f(b); fs.writeFileSync(env.FAKE_BROWSER, JSON.stringify(b)); };
   const seen = [];
+  let handovers = 0;
   let nextSession = 0;
   let known = new Set();
   const server = http.createServer((req, res) => {
@@ -42,11 +43,13 @@ const startBridge = async (env = {}, cwd, routes = {}) => {
       if (path === "/api/gate") return send({ go: true });
       if (path === "/api/activity") return send(env.FAKE_FRONT === "no" ? { front: false } : {});
       if (env.FAKE_WINDOWS && path === "/json/version") return send({ webSocketDebuggerUrl: `ws://127.0.0.1:${server.address().port}/devtools/browser/x` });
-      if (path === "/api/rules") return send({ hosts: [] });
+      if (path === "/api/handover") return send({ id: "h" + ++handovers });
+      if (path === "/api/handover/wait") return send({ done: true, blocked: hooks.block });
+      if (path === "/api/rules") return send({ hosts: hooks.rules ?? [] });
       if (env.FAKE_BROWSER && path === "/json/list") return send(browser().pages.map((p) => ({ id: p.id, type: "page", url: p.url })));
       if (env.FAKE_BROWSER && path.startsWith("/json/close/")) return send(edit((b) => { b.pages = b.pages.filter((p) => p.id !== path.split("/").pop()); }));
       if (env.FAKE_BROWSER && path === "/json/new") return send(edit((b) => b.pages.push({ id: `NEW${b.next++}`, url: "about:blank" })));
-      if (path === "/json/list") return send([{ id: TARGET, type: "page" }, { id: "OTHER", type: "page" }]);
+      if (path === "/json/list") return send(hooks.pages ?? [TARGET, "OTHER", ...seen.filter((x) => x.path === "/api/session/target").map((x) => x.body.target)].map((id) => ({ id, type: "page" })));
       send({});
     });
   });
@@ -150,6 +153,35 @@ test("a restarted viewer gets the session back with its label, status and tab", 
   assert.equal(joins[1].body.label, "Claude");
   assert.ok(joins[1].body.text, "the last status comes along");
   assert.equal(joins[1].body.target, TARGET);
+});
+
+test("a lost tab gets a one-line notice on the next answer", async () => {
+  const hooks = {};
+  const bridge = await startBridge({}, undefined, {}, hooks);
+  await bridge.call("browser_navigate", { url: "https://example.com" });
+  hooks.pages = [{ id: "OTHER", type: "page" }]; // Brave restarted
+  const [note, answer] = texts(await bridge.call("browser_snapshot"));
+  assert.match(note, /Your tab was closed .*navigate again/);
+  assert.equal(answer, "did browser_snapshot");
+  hooks.pages = undefined; // the new tab exists
+  assert.deepEqual(texts(await bridge.call("browser_snapshot")), ["did browser_snapshot"]);
+});
+
+test("run_code names the sites with rules", async () => {
+  const bridge = await startBridge({}, undefined, {}, { rules: ["secure.example", "bank.example"] });
+  const [text] = texts(await bridge.call("browser_run_code_unsafe", { code: "x" }));
+  assert.match(text, /every site/);
+  assert.match(text, /secure\.example, bank\.example/);
+});
+
+test("a block is remembered for the session and host, without asking again", async () => {
+  const bridge = await startBridge({}, undefined, {}, { rules: ["secure.example"], block: true });
+  const first = texts(await bridge.call("browser_click", { target: "e1" }));
+  assert.match(first[0], /human blocked this on secure\.example/);
+  assert.equal(bridge.count("/api/handover"), 1);
+  const second = texts(await bridge.call("browser_click", { target: "e1" }));
+  assert.match(second[0], /human blocked this on secure\.example/);
+  assert.equal(bridge.count("/api/handover"), 1, "no second question");
 });
 
 test("a session isn't released while a call is still running", async () => {
