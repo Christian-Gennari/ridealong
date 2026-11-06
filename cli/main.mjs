@@ -360,6 +360,10 @@ const update = async (it) => {
 
 const connectAgents = (it, remove = false) => {
   const { command, prefix } = mcpCommand(it);
+  // npx runs from a cache that npm may clear, and the agents would lose the command.
+  if (!remove && /[\\/]_npx[\\/]/.test(ROOT)) {
+    it.out(`Agents would start ridealong from npx's cache, which npm can clear. Install it for good: npm install -g ${PKG.name}, then run: ridealong connect`);
+  }
   connect({
     home: it.home,
     url: it.config.RIDEALONG_URL || "the viewer",
