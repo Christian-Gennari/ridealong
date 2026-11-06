@@ -40,6 +40,10 @@ const prepareProfile = () => {
     prefs.credentials_enable_service ??= false;
     // Same for "Translate this page?".
     prefs.translate = { enabled: false, ...prefs.translate };
+    // Brave's new tab page animates a full-screen background, and with no GPU
+    // SwiftShader draws every frame on the CPU: a whole core, even with no agent
+    // working. A blank new tab costs nothing. Only a default: change it in settings.
+    prefs.brave = { ...prefs.brave, new_tab_page: { shows_options: 2, ...prefs.brave?.new_tab_page } };
   });
   editJson(path.join(PROFILE, "Local State"), (state) => {
     state.brave = { ...state.brave, dont_ask_for_crash_reporting: true };
