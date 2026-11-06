@@ -76,12 +76,21 @@ const lock = async () => {
     } catch (e) {
       // The test removed the browser's folder: nothing left to wait for.
       if (e.code !== "EEXIST") return () => {};
+      // A holder that was killed leaves its lock behind. No call holds it this long,
+      // so take it over instead of waiting forever.
+      try {
+        if (Date.now() - fs.statSync(`${FILE}.lock`).mtimeMs > 5000) fs.rmSync(`${FILE}.lock`, { force: true });
+      } catch { /* released meanwhile */ }
       await new Promise((r) => setTimeout(r, 2));
     }
   }
 };
 
-createInterface({ input: process.stdin }).on("line", async (line) => {
+// When the bridge goes away (ended, or killed before it could end us), so do we.
+// Without this, a fake waiting on a lock outlives its test and spins for good.
+const lines = createInterface({ input: process.stdin });
+lines.on("close", () => process.exit(0));
+lines.on("line", async (line) => {
   const msg = JSON.parse(line);
   if (msg.method !== "tools/call") return;
   const { name, arguments: args = {} } = msg.params;

@@ -681,3 +681,40 @@ test("a tab list that fails because another session is closing a window is read 
   assert.ok(!answer.result.isError);
   assert.deepEqual(listed(answer), ["- 0: (current) [](https://a.test/1)"]);
 });
+
+// A test run that is killed leaves its lock file and its fakes behind. A fake must
+// not wait on that lock forever: it ends with its input, and takes over a stale lock.
+test("a fake stuck on a leftover lock exits when its bridge goes away", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-orphan-"));
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "browser.json");
+  fs.writeFileSync(file, JSON.stringify({ pages: [], next: 0 }));
+  fs.writeFileSync(`${file}.lock`, "");
+  const fake = spawn(process.execPath, [FAKE], { env: { FAKE_BROWSER: file }, stdio: ["pipe", "pipe", "ignore"] });
+  fake.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "browser_tabs", arguments: { action: "list" } } }) + "\n");
+  await new Promise((r) => setTimeout(r, 200));
+  fake.stdin.end();
+  const code = await Promise.race([
+    new Promise((r) => fake.on("exit", r)),
+    new Promise((r) => setTimeout(() => r("still running"), 3000)),
+  ]);
+  if (code === "still running") fake.kill("SIGKILL");
+  assert.equal(code, 0);
+});
+
+test("a fake takes over a lock left by a killed holder", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-stale-"));
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "browser.json");
+  fs.writeFileSync(file, JSON.stringify({ pages: [], next: 0 }));
+  fs.writeFileSync(`${file}.lock`, "");
+  const old = new Date(Date.now() - 60_000);
+  fs.utimesSync(`${file}.lock`, old, old);
+  const fake = spawn(process.execPath, [FAKE], { env: { FAKE_BROWSER: file }, stdio: ["pipe", "pipe", "ignore"] });
+  after(() => fake.kill("SIGKILL"));
+  const answer = new Promise((r) => createInterface({ input: fake.stdout }).once("line", r));
+  fake.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "browser_tabs", arguments: { action: "list" } } }) + "\n");
+  const got = await Promise.race([answer, new Promise((r) => setTimeout(() => r(null), 3000))]);
+  assert.ok(got, "the call is answered instead of waiting on the old lock");
+  fake.stdin.end();
+});
