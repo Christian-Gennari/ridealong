@@ -5,6 +5,10 @@ let queue = Promise.resolve();
 
 const group = async (tab, name) => {
   if (tab.groupId !== chrome.tabGroups.TAB_GROUP_ID_NONE) return;
+  // Only normal windows have tab groups. Grouping a tab in a popup window (a sign-in
+  // popup opened with window.open and a size) crashes Brave instead of failing.
+  const win = await chrome.windows.get(tab.windowId);
+  if (win.type !== "normal") return;
   const [existing] = await chrome.tabGroups.query({ windowId: tab.windowId, title: name });
   const groupId = await chrome.tabs.group({
     tabIds: tab.id,
