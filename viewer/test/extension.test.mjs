@@ -27,6 +27,7 @@ const brave = () => {
   const windows = new Map();
   let focused = null;
   const store = {};
+  const grouped = [];
   const listeners = { activated: [], focus: [], message: [] };
   const fire = (name, arg) => Promise.all(listeners[name].map((f) => f(...[].concat(arg))));
   const chrome = {
@@ -40,24 +41,26 @@ const brave = () => {
         const w = windows.get(windowId);
         return w ? [{ id: w.active, windowId, groupId: -1 }] : [];
       },
-      group: async () => 1,
+      group: async ({ tabIds }) => { grouped.push(tabIds); return 1; },
     },
     tabGroups: { TAB_GROUP_ID_NONE: -1, query: async () => [], update: async () => {} },
     windows: {
       WINDOW_ID_NONE: -1,
       onFocusChanged: { addListener: (f) => listeners.focus.push(f) },
       getLastFocused: async () => ({ id: focused, focused: focused !== null }),
+      get: async (id) => ({ id, focused: id === focused, type: windows.get(id)?.type ?? "normal" }),
     },
     runtime: { onMessage: { addListener: (f) => listeners.message.push(f) } },
   };
   return {
     chrome,
+    grouped,
     // A tab in a window of its own, brought to the front.
-    openWindow: async (windowId, tabId) => { windows.set(windowId, { active: tabId }); focused = windowId; await fire("focus", windowId); },
+    openWindow: async (windowId, tabId, type = "normal") => { windows.set(windowId, { active: tabId, type }); focused = windowId; await fire("focus", windowId); },
     focusWindow: async (windowId) => { focused = windowId; await fire("focus", windowId); },
     activate: async (windowId, tabId) => { windows.get(windowId).active = tabId; await fire("activated", { tabId, windowId }); },
     // What the cursor script sends when the agent's first message reaches a page.
-    cursorMessage: (tabId, session, viewer) => fire("message", [{ group: "Claude", session, viewer }, { tab: { id: tabId, windowId: 0, groupId: -1 } }]),
+    cursorMessage: (tabId, session, viewer, windowId = 0) => fire("message", [{ group: "Claude", session, viewer }, { tab: { id: tabId, windowId, groupId: -1 } }]),
   };
 };
 
@@ -162,4 +165,16 @@ test("an owner learned while a session is starting is reported once the viewer l
   assert.equal((await view(base)).sessions.find((s) => s.id === id).followed, false, "too early to be taken");
   await new Promise((r) => setTimeout(r, 1000));
   assert.equal((await view(base)).sessions.find((s) => s.id === id).followed, true, "taken after the start window");
+});
+
+test("a tab in a popup window is left out of tab groups, since grouping it crashes Brave", async () => {
+  const fake = brave();
+  load(fake);
+  // A sign-in popup (window.open with a size) opened by the agent's page.
+  await fake.openWindow(1, 10);
+  await fake.openWindow(2, 20, "popup");
+  await fake.cursorMessage(10, "s1", "http://127.0.0.1:1", 1);
+  await fake.cursorMessage(20, "s1", "http://127.0.0.1:1", 2);
+  await settle();
+  assert.deepEqual(fake.grouped, [10]);
 });
