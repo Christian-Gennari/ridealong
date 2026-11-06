@@ -960,7 +960,8 @@ async function finish() {
     id ? viewer("/api/session/end", { body: { id } }) : null,
   ]);
   child.stdin.end();
-  setTimeout(() => process.exit(0), 500);
+  // Playwright normally exits when its input ends. If it doesn't, don't leave it behind.
+  setTimeout(() => { child.kill(); process.exit(0); }, 500);
 }
 
 createInterface({ input: process.stdin }).on("line", (line) => {
