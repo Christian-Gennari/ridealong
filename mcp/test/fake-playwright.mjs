@@ -92,9 +92,12 @@ const lines = createInterface({ input: process.stdin });
 lines.on("close", () => process.exit(0));
 lines.on("line", async (line) => {
   const msg = JSON.parse(line);
+  if (msg.method === "initialize") {
+    return process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fake", version: "1" } } }) + "\n");
+  }
   if (msg.method !== "tools/call") return;
   const { name, arguments: args = {} } = msg.params;
-  console.error(JSON.stringify({ call: name, action: args.action, slowly: args.slowly }));
+  console.error(JSON.stringify({ call: name, action: args.action, slowly: args.slowly, paths: args.paths, filename: args.filename }));
   // Like 0.0.84 for a URL that downloads: an error with the URL in its log, and the
   // file saved a moment later in our working directory. "also" saves a second file.
   if (name === "browser_navigate" && /\/(download|failed)\b/.test(args.url)) {

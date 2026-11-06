@@ -110,10 +110,14 @@ const startBridge = async (env = {}, cwd, routes = {}, hooks = {}) => {
     waiting.set(++id, resolve);
     child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }) + "\n");
   });
+  const request = (method, params) => new Promise((resolve) => {
+    waiting.set(++id, resolve);
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+  });
   const count = (path) => seen.filter((x) => x.path === path).length;
   const end = () => child.stdin.end();
   const restartViewer = () => { known = new Set(); };
-  return { call, calls, seen, count, end, created, restartViewer };
+  return { call, request, calls, seen, count, end, created, restartViewer };
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -207,6 +211,42 @@ test("saved files point into the shared folder, whatever the client's root", asy
   const [text] = texts(await bridge.call("browser_snapshot", { saved: "page.yml" }));
   const file = path.join(fs.realpathSync(shared), "page.yml");
   assert.equal(text, `- [Snapshot](${file})\nSaved to "${file}"`);
+});
+
+// On Windows the folder has a fixed path in the container, and agents only use theirs.
+test("a Windows host's paths go in and come out translated", async () => {
+  const shared = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-files-")));
+  after(() => fs.rmSync(shared, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(shared, "page.yml"), "");
+  const host = "C:\\Users\\Me Too\\ridealong-files";
+  const bridge = await startBridge({ RIDEALONG_FILES: shared, RIDEALONG_FILES_HOST: host }, shared);
+  const [text] = texts(await bridge.call("browser_snapshot", { saved: "page.yml" }));
+  assert.equal(text, `- [Snapshot](${host}\\page.yml)\nSaved to "${host}\\page.yml"`);
+  await bridge.call("browser_file_upload", { paths: [`${host}\\a.txt`, "c:/users/me too/ridealong-files/sub/b.txt", "D:\\elsewhere.txt"] });
+  await bridge.call("browser_take_screenshot", { filename: `${host}\\shot.png` });
+  assert.deepEqual(bridge.calls.find((c) => c.call === "browser_file_upload").paths,
+    [`${shared}/a.txt`, `${shared}/sub/b.txt`, "D:\\elsewhere.txt"]);
+  assert.equal(bridge.calls.find((c) => c.call === "browser_take_screenshot").filename, `${shared}/shot.png`);
+});
+
+test("a URL that happens to contain the folder's path stays as it is", async () => {
+  const shared = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-files-")));
+  after(() => fs.rmSync(shared, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(shared, "none.yml"), "");
+  const bridge = await startBridge({ RIDEALONG_FILES: shared, RIDEALONG_FILES_HOST: "/Users/me/ridealong-files" }, shared);
+  const [text] = texts(await bridge.call("browser_navigate", { url: `https://example.com${shared}/x` }));
+  assert.equal(text, "did browser_navigate");
+  assert.equal((await bridge.call("browser_snapshot", { saved: "none.yml" })).result.content[0].text,
+    "- [Snapshot](/Users/me/ridealong-files/none.yml)\nSaved to \"/Users/me/ridealong-files/none.yml\"");
+});
+
+test("the instructions name the host's folder and how to reach the host", async () => {
+  const shared = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-files-")));
+  after(() => fs.rmSync(shared, { recursive: true, force: true }));
+  const bridge = await startBridge({ RIDEALONG_FILES: shared, RIDEALONG_FILES_HOST: "C:\\Users\\me\\ridealong-files", RIDEALONG_HOST_OS: "win32" }, shared);
+  const init = await bridge.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } });
+  assert.match(init.result.instructions, /shares only C:\\Users\\me\\ridealong-files with you/);
+  assert.match(init.result.instructions, /not the user's computer\. To open a server running on their computer, use host\.docker\.internal/);
 });
 
 // Two sessions in one fake browser: the same state file stands for the shared Brave.

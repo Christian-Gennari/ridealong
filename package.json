@@ -1,0 +1,30 @@
+{
+  "name": "@christian-gennari/ridealong",
+  "version": "1.0.0",
+  "description": "A real, logged-in Brave for your AI agents, in Docker, that you watch and take over from any device.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Christian-Gennari/ridealong.git"
+  },
+  "homepage": "https://github.com/Christian-Gennari/ridealong#readme",
+  "keywords": ["mcp", "browser", "brave", "agents", "playwright", "docker"],
+  "bin": {
+    "ridealong": "ridealong"
+  },
+  "files": [
+    "ridealong",
+    "cli/*.mjs",
+    "compose.yaml",
+    "compose.host.yaml",
+    "docker/seccomp.json",
+    "docs/agent-instructions.md",
+    "scripts/remove-host-install"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test cli/test/cli.test.mjs"
+  }
+}

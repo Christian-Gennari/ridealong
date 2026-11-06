@@ -30,7 +30,37 @@ const VIEWER = process.env.RIDEALONG_VIEWER || "http://127.0.0.1:6086";
 const VIEWER_TOKEN = process.env.VIEWER_TOKEN || "";
 const CDP = process.env.RIDEALONG_CDP || "http://127.0.0.1:9222";
 
-const FILES = process.env.RIDEALONG_FILES || "the shared folder";
+// The shared folder, as the container sees it (our working directory) and as the
+// agent's computer does. They differ on Windows, where C:\Users\me\ridealong-files
+// can't be a Linux path: agents only ever see and give the host's.
+const FILES_INSIDE = process.env.RIDEALONG_FILES || "";
+const FILES_HOST = process.env.RIDEALONG_FILES_HOST || FILES_INSIDE;
+const FILES = FILES_HOST || "the shared folder";
+const TRANSLATE = Boolean(FILES_INSIDE && FILES_HOST && FILES_INSIDE !== FILES_HOST);
+const WINDOWS_HOST = /^[A-Za-z]:[\\/]|^\\\\/.test(FILES_HOST);
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const insideRe = new RegExp(`(?<![\\w./:-])${escapeRe(FILES_INSIDE)}((?:/[^\\s"'\`)\\]]*)?)`, "g");
+const hostBase = FILES_HOST.replace(/[\\/]+$/, "");
+const toHostText = (text) => !TRANSLATE ? text
+  : text.replace(insideRe, (_, rest) => hostBase + (WINDOWS_HOST ? rest.replace(/\//g, "\\") : rest));
+const slashed = (s) => s.replace(/\\/g, "/");
+const toInside = (value) => {
+  if (!TRANSLATE || typeof value !== "string") return value;
+  const base = slashed(hostBase);
+  const v = slashed(value);
+  const head = WINDOWS_HOST ? v.slice(0, base.length).toLowerCase() === base.toLowerCase() : v.startsWith(base);
+  if (!head || (v.length > base.length && v[base.length] !== "/")) return value;
+  return FILES_INSIDE + v.slice(base.length);
+};
+const insideArgs = (value) => Array.isArray(value) ? value.map(insideArgs)
+  : value && typeof value === "object" ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, insideArgs(v)]))
+  : toInside(value);
+
+const HOST_OS = process.env.RIDEALONG_HOST_OS || "linux";
+const LOCALHOST = process.env.RIDEALONG_HOST_NETWORK === "1" ? ""
+  : HOST_OS === "linux"
+    ? "localhost in this browser is the container, not the server. To open a server running on the server, use host.docker.internal instead of localhost; it only answers if that server listens on all addresses, not just 127.0.0.1. "
+    : "localhost in this browser is the container, not the user's computer. To open a server running on their computer, use host.docker.internal instead of localhost. ";
 
 // Sent to every client when it connects, so the rules don't depend on one agent's config.
 const INSTRUCTIONS = "This is a real, logged-in browser shared with other agent sessions and watched by a human. " +
@@ -39,7 +69,7 @@ const INSTRUCTIONS = "This is a real, logged-in browser shared with other agent 
   "If you need a 2FA code, a CAPTCHA or a password that isn't saved, tell the user, then call browser_handover. " +
   "If the human takes control, your browser tools wait until they release it. That isn't an error. " +
   `Brave runs in a container and shares only ${FILES} with you: put files there to upload them, and find downloads there. ` +
-  (process.env.RIDEALONG_HOST_NETWORK === "1" ? "" : "localhost in this browser is the container, not the server. ") +
+  LOCALHOST +
   "Some sites need the human's approval before you click or type on them: your tool call waits for their answer. " +
   "All sessions share one browser profile, so cookies and logins are shared: another session may already be signed in, and signing out signs out everyone.";
 
@@ -614,6 +644,7 @@ const watchShared = (msg, overlapped) => {
 let line = Promise.resolve();
 
 const handleCall = async (msg) => {
+  if (TRANSLATE) msg.params = { ...msg.params, arguments: insideArgs(msg.params.arguments ?? {}) };
   const overlapped = busy > 0;
   busy += 1;
   try {
@@ -738,6 +769,7 @@ const handleToolCall = async (msg) => {
   }
   answer = absolutePaths(answer);
   await noteDownload(answer, before);
+  answer = hostPaths(answer);
   if (shot) await overlay({ cmd: "show" });
   let orphan = null;
   // Show only this session's tabs, numbered from 0. This reads the tabs as the
@@ -801,6 +833,15 @@ const absolutePaths = (answer) => {
       .replace(/\]\((?![a-z]+:|\/)([^)\s]+)\)/g, (_, file) => `](${absolute(file)})`)
       // Never a URL ("navigating to "http://…""): only plain relative paths.
       .replace(/ to "(?!\/|[a-z][a-z0-9+.-]*:)([^"]+)"/gi, (_, file) => ` to "${absolute(file)}"`);
+  }
+  return answer;
+};
+
+// Paths in the container's terms, in the agent's.
+const hostPaths = (answer) => {
+  if (!TRANSLATE) return answer;
+  for (const part of answer.result?.content ?? []) {
+    if (part.type === "text") part.text = toHostText(part.text);
   }
   return answer;
 };
