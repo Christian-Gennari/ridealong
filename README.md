@@ -2,12 +2,12 @@
 
 **A real browser for any AI agent. Plug it into anything that speaks MCP, ride along, and take the wheel when you need to.**
 
-Ridealong runs a real, logged-in Brave browser on your server. Claude Code, Codex, Antigravity CLI, Cursor or any other MCP client can drive it. You follow along live from a web viewer, and when an agent hits a 2FA code or a CAPTCHA, it asks you to step in and carries on when you hand back.
+Ridealong runs a real, logged-in Brave browser on your server or your own computer. Claude Code, Codex, Antigravity CLI, Cursor or any other MCP client can drive it. You follow along live from a web viewer, and when an agent hits a 2FA code or a CAPTCHA, it asks you to step in and carries on when you hand back.
 
-**Setup is one command** on any Linux server with Docker. It takes about two minutes and connects your agents for you:
+**Setup is one command** on Linux, macOS or Windows with Docker. It takes about two minutes and connects your agents for you:
 
 ```
-git clone https://github.com/Christian-Gennari/ridealong && cd ridealong && ./ridealong up
+npm install -g @christian-gennari/ridealong && ridealong up
 ```
 
 [![Claude and Codex plan a trip side by side in their own windows on Google Flights and Booking.com, then both need you and take turns](docs/images/demo.webp)](docs/demo.mp4)
@@ -29,17 +29,18 @@ Agents get stuck wherever there's no API: dashboards, admin panels, anything beh
 
 ## Install
 
-You need Linux with Docker and Compose. It's tested on Ubuntu 24.04 (x86-64).
+You need Docker with Compose (on macOS and Windows, [Docker Desktop](https://docs.docker.com/desktop/)) and Node.js 18 or later, which you already have if you use Claude Code, Codex or Gemini CLI. The image runs natively on x86-64 and ARM, including Apple Silicon.
 
 ```
-git clone https://github.com/Christian-Gennari/ridealong
-cd ridealong
-./ridealong up
+npm install -g @christian-gennari/ridealong
+ridealong up
 ```
 
 It downloads about 350 MB the first time, prints your viewer link and connects the MCP clients it finds. Then open the viewer, choose **Control**, sign into your accounts in Brave, and go back to **Auto**.
 
-Everything runs in one container, so nothing is installed on the server except the `ridealong` command in `~/.local/bin`. It starts again on its own after a reboot.
+Everything runs in one container, so the only thing installed on your machine is the `ridealong` command. It starts again on its own after a reboot (on macOS and Windows, once Docker Desktop is running).
+
+You can also run it from a clone, which builds the image if it can't download it: `git clone https://github.com/Christian-Gennari/ridealong && cd ridealong && ./ridealong up`. That puts the command in `~/.local/bin`, and `ridealong update` then updates the clone with `git pull`.
 
 | Command | What it does |
 |---|---|
@@ -48,14 +49,14 @@ Everything runs in one container, so nothing is installed on the server except t
 | `ridealong restart` | Restart it |
 | `ridealong status` | Show whether it's healthy and where to find it |
 | `ridealong logs` | Follow the logs |
-| `ridealong update` | Get the latest version, including Brave, and restart |
+| `ridealong update` | Get the latest image, including Brave, and restart. It tells you when a newer `ridealong` command is out too |
 | `ridealong connect` | Connect MCP clients you've installed since |
 | `ridealong uninstall` | Remove the container and agent config, keeping your profile and files |
 | `ridealong --name NAME <command>` | Run any command on a separate instance (or set `RIDEALONG_NAME`) |
 
 Brave only updates with the image, which is rebuilt every week, so run `ridealong update` regularly. The viewer reminds you after 14 days.
 
-Moving from an older install that ran directly on the server? Run `./ridealong migrate`. It asks for `sudo` once, removes that install and carries on with your existing Brave profile.
+Moving from an older install that ran directly on a Linux server? Run `ridealong migrate`. It asks for `sudo` once, removes that install and carries on with your existing Brave profile.
 
 ## Using it
 
@@ -124,6 +125,8 @@ Never expose the viewer to the internet without a login in front of it.
 
 Ridealong is a standard MCP server, so it's plug and play: if a tool can run a local MCP server, it works, whichever model is behind it. Everything points at one command, `ridealong mcp`, which also starts the container if it's stopped.
 
+On Windows, register `node` with the path to the command instead, because clients can't start npm's `ridealong.cmd` without a shell. `ridealong connect` does this for you; for anything else, use `"command": "node", "args": ["C:\\Users\\you\\AppData\\Roaming\\npm\\node_modules\\@christian-gennari\\ridealong\\ridealong", "mcp", "--agent", "Cursor"]` (`npm root -g` shows the folder).
+
 `ridealong up` connects Claude Code, Codex, Antigravity CLI, Gemini CLI and Hermes if it finds them. For anything else:
 
 ```bash
@@ -151,9 +154,9 @@ The ChatGPT web and desktop apps can't use it: they only connect to remote MCP s
 
 ## Files and localhost
 
-Brave runs in a container, so it sees only one folder of yours, `~/ridealong-files`. Agents upload from it and downloads land in it. It has the same path inside and out, so the paths agents get back work as they are. When a page load turns into a download, the answer names the saved file. If two sessions download at the same moment and the file cannot be matched to one of them, the answer lists the new files and says so.
+Brave runs in a container, so it sees only one folder of yours, `~/ridealong-files`. Agents upload from it and downloads land in it. Agents only ever see and give your computer's paths, so the paths they get back work as they are, on Windows too. When a page load turns into a download, the answer names the saved file. If two sessions download at the same moment and the file cannot be matched to one of them, the answer lists the new files and says so.
 
-`localhost` in this browser is the container, not your server. To let agents open a dev server running on the machine, use `ridealong up --host-network`. Brave then shares the server's network, so you give up the network isolation.
+`localhost` in this browser is the container, not your machine. Agents reach your machine at `host.docker.internal` instead, for example `http://host.docker.internal:3000`, and they're told so when they connect. With Docker Desktop that reaches anything running on your computer. On Linux, the server must listen on all addresses, not only `127.0.0.1`; otherwise use `ridealong up --host-network`, which lets Brave share the server's network, so you give up the network isolation. `--host-network` only exists on Linux, because Docker Desktop's host network is its VM's.
 
 ## How it works
 
@@ -163,7 +166,7 @@ One container runs Xvfb, a bare window manager, Brave, x11vnc and the viewer, wi
 
 Only the viewer port leaves the container. VNC and Brave's debugging port stay inside it.
 
-To work on Ridealong itself, run `npm test` in `viewer/`, and `scripts/smoke` to boot the real image. Smoke uses its own instance name, so it never touches a Ridealong you already run. To try a build next to your real install, use a named instance: `ridealong --name dev up --build --port 6090`. It has its own container, image, config (`~/.config/ridealong-dev`) and profile (`~/.ridealong-browser-dev`), is never linked into `~/.local/bin`, and is not connected to your agents. It must have its own `--port` (and `--https-port` with Tailscale); `ridealong` refuses the default 6086 and 6087, which the main install uses. To point an agent at it, use `RIDEALONG_NAME=dev ridealong mcp`.
+To work on Ridealong itself, run `npm test` in the root (the command) and in `viewer/`, `node --test mcp/test/*.test.mjs` for the MCP wrapper, and `node scripts/smoke.mjs` to boot the real image. Smoke uses its own instance name, so it never touches a Ridealong you already run. To try a build next to your real install, use a named instance: `ridealong --name dev up --build --port 6090`. It has its own container, image, config (`~/.config/ridealong-dev`) and profile (`~/.ridealong-browser-dev`), is never linked into `~/.local/bin`, and is not connected to your agents. It must have its own `--port` (and `--https-port` with Tailscale); `ridealong` refuses the default 6086 and 6087, which the main install uses. To point an agent at it, use `RIDEALONG_NAME=dev ridealong mcp`.
 
 ## Security
 

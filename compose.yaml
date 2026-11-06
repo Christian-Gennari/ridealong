@@ -30,11 +30,22 @@ services:
 
     ports:
       - ${RIDEALONG_BIND:-127.0.0.1}:${RIDEALONG_PORT:-6086}:6086
+    # The long form, so a Windows path (C:\\...) works as a source. The CLI sets
+    # RIDEALONG_FILES_INSIDE: the same path on Linux and macOS, a fixed one on Windows.
     volumes:
-      - ${RIDEALONG_PROFILE}:/profile
-      - ${RIDEALONG_FILES}:${RIDEALONG_FILES}
+      - type: bind
+        source: ${RIDEALONG_PROFILE}
+        target: /profile
+      - type: bind
+        source: ${RIDEALONG_FILES}
+        target: ${RIDEALONG_FILES_INSIDE:-/ridealong-files}
+    # Agents reach the computer Ridealong runs on at this name (built in on Docker Desktop).
+    extra_hosts:
+      - host.docker.internal:host-gateway
     environment:
-      RIDEALONG_FILES: ${RIDEALONG_FILES}
+      RIDEALONG_FILES: ${RIDEALONG_FILES_INSIDE:-/ridealong-files}
+      RIDEALONG_FILES_HOST: ${RIDEALONG_FILES}
+      RIDEALONG_HOST_OS: ${RIDEALONG_HOST_OS:-linux}
       RULES_FILE: /profile/ridealong-rules.json
       PUSH_FILE: /profile/ridealong-push.json
       RIDEALONG_RESOLUTION: ${RIDEALONG_RESOLUTION:-1920x1080}
