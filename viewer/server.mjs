@@ -33,8 +33,8 @@ let pinned = false;  // the human chose this, so don't move on when it goes quie
 let shownTurn = null; // the handover we've already brought forward
 let activated = null;
 let agentTabsUntil = 0; // tab changes until then are an agent's doing, not the human's
-const AGENT_TAB_MS = 2500;
-const AGENT_START_MS = 20000; // a session's first tab can take this long to connect
+const AGENT_TAB_MS = Number(process.env.AGENT_TAB_MS ?? 2500);
+const AGENT_START_MS = Number(process.env.AGENT_START_MS ?? 20000); // a session's first tab can take this long to connect
 const expectAgentTab = (ms = AGENT_TAB_MS) => { agentTabsUntil = Date.now() + ms; };
 
 const ACTIVE_MS = 30000;
@@ -408,9 +408,10 @@ const api = {
   "POST /api/focus": async (req, res) => {
     const { session } = await readBody(req);
     const id = sessions.has(session) ? session : null;
-    if (Date.now() < agentTabsUntil) return json(res, 200, {});
+    // Tab changes an agent just caused aren't the human's choice.
+    if (Date.now() < agentTabsUntil) return json(res, 200, { taken: false, retry: agentTabsUntil - Date.now() });
     if (id !== followed) { followed = id; pinned = true; activated = sessions.get(id)?.target ?? null; publish(); }
-    json(res, 200, {});
+    json(res, 200, { taken: true });
   },
   "POST /api/handover": async (req, res) => {
     const { session, reason, minutes, kind, host } = await readBody(req);
