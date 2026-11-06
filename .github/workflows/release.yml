@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # npm provenance
+  id-token: write # npm trusted publishing (OIDC) and provenance
 
 jobs:
   npm:
@@ -20,6 +20,7 @@ jobs:
       - name: Tag matches package.json
         run: test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
       - run: npm test
+      # No token: npm trusts this workflow (package settings, Trusted Publisher),
+      # which needs npm 11.5.1 or later.
+      - run: npm install -g npm@latest && npm --version
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
