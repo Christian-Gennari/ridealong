@@ -19,20 +19,62 @@ const remember = async (tabId, session, viewer) => {
   const { owners = {} } = await chrome.storage.session.get("owners");
   owners[tabId] = session;
   await chrome.storage.session.set({ owners, viewer });
+  await learned(tabId, session);
 };
 
-chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+// The session whose tab the viewer last took as the one in front. Kept so the
+// extension can correct the viewer when it learns a tab's owner too late.
+let reported;
+
+const report = async (tabId) => {
   const { owners = {}, viewer } = await chrome.storage.session.get(["owners", "viewer"]);
-  if (!viewer) return;
-  fetch(`${viewer}/api/focus`, {
+  if (!viewer) return null;
+  const session = owners[tabId] ?? null;
+  const res = await fetch(`${viewer}/api/focus`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session: owners[tabId] ?? null }),
-  }).catch(() => {});
+    body: JSON.stringify({ session }),
+  }).catch(() => null);
+  if (!res?.ok) return null;
+  // An older viewer says nothing back, and takes every report.
+  const { taken = true, retry = 0 } = await res.json().catch(() => ({}));
+  if (taken) reported = session;
+  return taken ? null : retry;
+};
+
+// The tab on screen: the active tab of the window that has focus.
+const inFront = async () => {
+  const win = await chrome.windows.getLastFocused().catch(() => null);
+  if (!win?.focused) return null;
+  const [tab] = await chrome.tabs.query({ active: true, windowId: win.id });
+  return tab ?? null;
+};
+
+chrome.tabs.onActivated.addListener(({ tabId }) => { report(tabId); });
+
+// Each session's tab sits in a window of its own, and moving between windows
+// activates no tab.
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  const [tab] = await chrome.tabs.query({ active: true, windowId });
+  if (tab) report(tab.id);
 });
+
+// A tab is reported before the agent's first cursor message names its owner,
+// so the viewer takes it for one of the human's own. Correct that once the owner is known.
+// The viewer turns reports down while an agent is opening tabs, so ask again after that.
+const learned = async (tabId, session) => {
+  const front = await inFront();
+  if (front?.id !== tabId || session === reported) return;
+  const retry = await report(tabId);
+  if (retry !== null && retry < 60000) setTimeout(() => learned(tabId, session), retry + 100);
+};
 
 chrome.runtime.onMessage.addListener((msg, sender) => {
   // Any page can reach this listener, so only ever talk to the viewer on this machine.
-  if (msg.session && sender.tab && /^http:\/\/127\.0\.0\.1:\d+$/.test(msg.viewer)) remember(sender.tab.id, msg.session, msg.viewer);
+  // One at a time, or two tabs that learn their owner at once overwrite each other.
+  if (msg.session && sender.tab && /^http:\/\/127\.0\.0\.1:\d+$/.test(msg.viewer)) {
+    queue = queue.then(() => remember(sender.tab.id, msg.session, msg.viewer)).catch(() => {});
+  }
   if (msg.group && sender.tab) queue = queue.then(() => group(sender.tab, msg.group)).catch(() => {});
 });
