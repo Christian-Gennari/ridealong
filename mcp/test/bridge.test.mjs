@@ -46,7 +46,7 @@ const startBridge = async (env = {}, cwd, routes = {}, hooks = {}) => {
       if (path === "/api/handover") return send({ id: "h" + ++handovers });
       if (path === "/api/handover/wait") return send({ done: true, blocked: hooks.block });
       if (path === "/api/rules") return send({ hosts: hooks.rules ?? [] });
-      if (env.FAKE_BROWSER && path === "/json/list") return send(browser().pages.map((p) => ({ id: p.id, type: "page", url: p.url })));
+      if (env.FAKE_BROWSER && path === "/json/list") return send(browser().pages.map((p) => ({ id: p.id, type: "page", url: p.url, webSocketDebuggerUrl: `ws://127.0.0.1:${server.address().port}/devtools/page/${p.id}` })));
       if (env.FAKE_BROWSER && path.startsWith("/json/close/")) return send(edit((b) => { b.pages = b.pages.filter((p) => p.id !== path.split("/").pop()); }));
       if (env.FAKE_BROWSER && path === "/json/new") return send(edit((b) => b.pages.push({ id: `NEW${b.next++}`, url: "about:blank" })));
       if (path === "/json/list") return send(hooks.pages ?? [TARGET, "OTHER", ...seen.filter((x) => x.path === "/api/session/target").map((x) => x.body.target)].map((id) => ({ id, type: "page" })));
@@ -56,6 +56,7 @@ const startBridge = async (env = {}, cwd, routes = {}, hooks = {}) => {
   // With env.FAKE_WINDOWS, the fake browser also takes Target.createTarget over a
   // WebSocket, like Brave's browser endpoint, and records what was asked.
   const created = [];
+  const reloads = [];
   if (env.FAKE_WINDOWS) {
     server.on("upgrade", (req, socket) => {
       const accept = crypto.createHash("sha1").update(req.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
@@ -73,6 +74,11 @@ const startBridge = async (env = {}, cwd, routes = {}, hooks = {}) => {
         const mask = buf.subarray(at, at + 4);
         const text = Buffer.from(buf.subarray(at + 4, at + 4 + len).map((b, i) => b ^ mask[i % 4])).toString();
         const { id, method, params } = JSON.parse(text);
+        if (method === "Page.reload") {
+          reloads.push(req.url.split("/").pop());
+          fs.writeFileSync(`${env.FAKE_BROWSER}.reloaded`, "");
+          return reply({ id, result: {} });
+        }
         if (method === "Browser.getWindowForTarget") return reply({ id, result: { windowId: 1, bounds: { left: 0, top: 0, width: 1920, height: 1080 } } });
         if (method === "Target.createTarget") {
           created.push(params);
@@ -117,7 +123,9 @@ const startBridge = async (env = {}, cwd, routes = {}, hooks = {}) => {
   const count = (path) => seen.filter((x) => x.path === path).length;
   const end = () => child.stdin.end();
   const restartViewer = () => { known = new Set(); };
-  return { call, request, calls, seen, count, end, created, restartViewer };
+  const notify = (method, params) => child.stdin.write(JSON.stringify({ jsonrpc: "2.0", method, params }) + "\n");
+  const lastId = () => id;
+  return { call, request, notify, lastId, calls, seen, count, end, created, reloads, restartViewer };
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -757,4 +765,48 @@ test("a fake takes over a lock left by a killed holder", async () => {
   const got = await Promise.race([answer, new Promise((r) => setTimeout(() => r(null), 3000))]);
   assert.ok(got, "the call is answered instead of waiting on the old lock");
   fake.stdin.end();
+});
+
+// A call that never ends would hold Playwright, and so every later call, for good.
+const hangingBridge = async (env = {}) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ridealong-browser-"));
+  after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const FAKE_BROWSER = path.join(dir, "browser.json");
+  fs.writeFileSync(FAKE_BROWSER, JSON.stringify({ pages: [{ id: TARGET, url: "about:blank" }], next: 1 }));
+  const bridge = await startBridge({ FAKE_BROWSER, FAKE_WINDOWS: "1", ...env });
+  await bridge.call("browser_navigate", { url: "https://reader.test/" });
+  const own = JSON.parse(fs.readFileSync(FAKE_BROWSER, "utf8")).pages.find((p) => p.url === "https://reader.test/").id;
+  return { bridge, own };
+};
+
+test("a call that runs past the limit is stopped, and reloading the session's tab frees the browser", async () => {
+  const { bridge, own } = await hangingBridge({ RIDEALONG_CALL_SECONDS: "0.5" });
+  const started = Date.now();
+  const stuck = await bridge.call("browser_run_code_unsafe", { code: "async (page) => 'HANG'" });
+  assert.ok(Date.now() - started < 5000);
+  assert.match(texts(stuck).join(" "), /ran for more than 1 seconds, so Ridealong stopped it\. It reloaded your tab/);
+  assert.deepEqual(bridge.reloads, [own], "only the session's own tab is reloaded");
+  // The next call gets through instead of waiting behind the stuck one.
+  const next = await bridge.call("browser_snapshot");
+  assert.deepEqual(texts(next), ["did browser_snapshot"]);
+});
+
+test("a call the client cancels is stopped, so the next call isn't held behind it", async () => {
+  const { bridge, own } = await hangingBridge();
+  let answered = false;
+  bridge.call("browser_run_code_unsafe", { code: "async (page) => 'HANG'" }).then(() => { answered = true; });
+  await sleep(300);
+  bridge.notify("notifications/cancelled", { requestId: bridge.lastId(), reason: "interrupted" });
+  const next = await Promise.race([bridge.call("browser_snapshot"), sleep(5000).then(() => null)]);
+  assert.ok(next, "the next call was answered");
+  assert.deepEqual(texts(next), ["did browser_snapshot"]);
+  assert.deepEqual(bridge.reloads, [own]);
+  assert.equal(answered, false, "a cancelled request gets no answer");
+});
+
+test("browser_wait_for gets its own time on top of the limit", async () => {
+  const { bridge } = await hangingBridge({ RIDEALONG_CALL_SECONDS: "0.2" });
+  const answer = await bridge.call("browser_wait_for", { time: 0.5 });
+  assert.deepEqual(texts(answer), ["did browser_wait_for"]);
+  assert.deepEqual(bridge.reloads, []);
 });

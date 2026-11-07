@@ -25,6 +25,10 @@ const [cmd, ...cmdArgs] = argv.slice(split + 1);
 const PLAIN = process.env.RIDEALONG_PLAIN === "1";
 const HANDOVER_MINUTES = Number(process.env.RIDEALONG_HANDOVER_MINUTES || 10);
 const IDLE_RELEASE_MINUTES = Number(process.env.RIDEALONG_IDLE_RELEASE_MIN ?? 120);
+// The longest one browser call may run. Playwright serves one call at a time, so a
+// call that never ends (code waiting on a frame that never answers) would hold every
+// later call, this session's and the user's interrupt included. 0 turns it off.
+const CALL_SECONDS = Number(process.env.RIDEALONG_CALL_SECONDS ?? 120);
 const GLIDE_MS = 450;
 const VIEWER = process.env.RIDEALONG_VIEWER || "http://127.0.0.1:6086";
 const VIEWER_TOKEN = process.env.VIEWER_TOKEN || "";
@@ -99,12 +103,17 @@ const pending = new Map();
 const listIds = new Set();
 const initIds = new Set();
 
-const callChild = (params, timeoutMs) => new Promise((resolve, reject) => {
+// Client request id -> stop its call in Playwright, for notifications/cancelled.
+const stoppers = new Map();
+
+const callChild = (params, timeoutMs, clientId) => new Promise((resolve, reject) => {
   const id = `ridealong:${++nextId}`;
-  pending.set(id, resolve);
+  const done = (fn) => (v) => { if (clientId !== undefined) stoppers.delete(clientId); fn(v); };
+  pending.set(id, done(resolve));
+  if (clientId !== undefined) stoppers.set(clientId, () => { if (pending.delete(id)) done(reject)(new Error("cancelled")); });
   toChild({ jsonrpc: "2.0", id, method: "tools/call", params });
   if (timeoutMs) setTimeout(() => {
-    if (pending.delete(id)) reject(new Error("timeout"));
+    if (pending.delete(id)) done(reject)(new Error("timeout"));
   }, timeoutMs);
 });
 
@@ -301,6 +310,29 @@ const pinTab = async () => {
 const pages = async () => {
   const res = await fetch(`${CDP}/json/list`, { signal: AbortSignal.timeout(1000) });
   return (await res.json()).filter((t) => t.type === "page");
+};
+
+// Frees Playwright from a call that won't end by reloading the session's own tab
+// over CDP, outside Playwright: the reload ends whatever the call waits on in the
+// page, so the call fails and Playwright serves the next one. Returns whether it worked.
+const reloadOwnTab = async () => {
+  if (!myTarget || typeof WebSocket === "undefined") return false;
+  let socket;
+  try {
+    const page = (await pages()).find((t) => t.id === myTarget);
+    if (!page?.webSocketDebuggerUrl) return false;
+    socket = new WebSocket(page.webSocketDebuggerUrl);
+    return await new Promise((resolve) => {
+      socket.onopen = () => socket.send(JSON.stringify({ id: 1, method: "Page.reload", params: {} }));
+      socket.onmessage = (e) => { if (JSON.parse(e.data).id === 1) resolve(true); };
+      socket.onerror = () => resolve(false);
+      setTimeout(() => resolve(false), 3000);
+    });
+  } catch {
+    return false;
+  } finally {
+    try { socket?.close(); } catch { /* already closed */ }
+  }
 };
 
 // Opens a page in a window of its own in the shared profile. A hidden tab in a
@@ -760,7 +792,20 @@ const handleToolCall = async (msg) => {
     if (!now || !ownTargets.has(now)) await pinTab();
   }
   const before = listFiles();
-  let answer = await callChild(params);
+  const limitMs = CALL_SECONDS > 0 ? (CALL_SECONDS + (name === "browser_wait_for" ? Number(args.time) || 0 : 0)) * 1000 : 0;
+  let answer;
+  try {
+    answer = await callChild(params, limitMs, msg.id);
+  } catch (e) {
+    if (e.message !== "timeout" && e.message !== "cancelled") throw e;
+    const freed = await reloadOwnTab();
+    // A cancelled request gets no answer: the client has already moved on.
+    if (e.message === "cancelled") return;
+    return reply(msg, `This call ran for more than ${Math.round(limitMs / 1000)} seconds, so Ridealong stopped it. ` +
+      (freed ? "It reloaded your tab to free the browser: the page is fresh, so take a new snapshot. "
+        : "It couldn't reload your tab, so the browser may still be busy with it. ") +
+      "Code that waits on a frame inside the page (an iframe reader, for one) is a common cause: use browser_evaluate on the page, or the site's own API, instead.");
+  }
   // A list reads every session's tabs, so a window another session is closing at that
   // moment fails it. Looking again is harmless.
   for (let i = 0; i < 3 && name === "browser_tabs" && params.arguments?.action === "list" && /has been closed/.test(JSON.stringify(answer.result ?? "")); i += 1) {
@@ -1023,6 +1068,12 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (clientPending.has(msg.id) && !msg.method) {
     clientPending.get(msg.id)(msg);
     clientPending.delete(msg.id);
+    return;
+  }
+  // The client gave up on a call (the user interrupted it): stop it in Playwright too,
+  // or it holds every later call. The id is the client's, which Playwright never saw.
+  if (msg.method === "notifications/cancelled") {
+    stoppers.get(msg.params?.requestId)?.();
     return;
   }
   if (msg.method === "tools/call") {

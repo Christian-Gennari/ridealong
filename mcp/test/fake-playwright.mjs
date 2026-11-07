@@ -111,6 +111,13 @@ lines.on("line", async (line) => {
     const text = `### Error\nError: page.goto: ${error}\nCall log:\n  - navigating to "${args.url}", waiting until "domcontentloaded"`;
     return process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { isError: true, content: [{ type: "text", text }] } }) + "\n");
   }
+  // Code that waits on something in the page that never answers, like a frame of an
+  // iframe reader: it ends only when the page reloads (the test's CDP writes .reloaded).
+  if (name === "browser_run_code_unsafe" && String(args.code).includes("HANG")) {
+    while (!fs.existsSync(`${FILE}.reloaded`)) await new Promise((r) => setTimeout(r, 20));
+    const text = "### Error\nError: frame.evaluate: Frame was detached";
+    return process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { isError: true, content: [{ type: "text", text }] } }) + "\n");
+  }
   // One call at a time across fake processes, like one browser serving them in turn.
   const unlock = await lock();
   let b;
