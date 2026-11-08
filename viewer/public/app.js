@@ -333,7 +333,7 @@ const renderTurn = () => {
   document.body.classList.toggle("turn", Boolean(turn));
   if (turn) document.body.dataset.agent = base(turn.agent);
   else delete document.body.dataset.agent;
-  $("theme-color").content = turn ? getComputedStyle(document.body).getPropertyValue("--c").trim() : "#fdfcfc";
+  $("theme-color").content = turn ? getComputedStyle(document.body).getPropertyValue("--c").trim() : "#cfeaf9";
   if (!turn) return;
   const approval = turn.kind === "approval";
   $("turn-orb").dataset.agent = base(turn.agent);
