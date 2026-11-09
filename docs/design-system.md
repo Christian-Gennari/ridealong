@@ -22,9 +22,9 @@ reserved for interaction (focus, switches, sliders, selection and link hover).
 5. **Quiet motion.** 160–240ms for entrances and popovers, `cubic-bezier(.2,.8,.2,1)`.
    Hovers are a 4–6% fill change at 120ms. Popovers fade and scale from 0.98. Respect
    `prefers-reduced-motion` and `prefers-reduced-transparency`.
-6. **One geometry.** Pills for buttons and segments, 10px for inputs and rows, 14px for
-   cards, 16px for the window and panel (the remote canvas is 12px). Icons are drawn at
-   1.75 stroke width everywhere.
+6. **One geometry.** Pills for buttons and segments, 10px for inputs and picker rows, 12px
+   for inset group cards, 14px for cards, 16px for the window, panel and turn banner (the
+   remote canvas is 12px). Icons are drawn at 1.75 stroke width everywhere.
 
 ## Tokens (`:root`, light; dark values in parentheses)
 
@@ -43,6 +43,8 @@ Keep all existing token names working (`--page --card --tray --tray-hover --line
 | `--lift-2` (cards, popovers) | `0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.08)` | `0 10px 20px -4px rgba(0,0,0,.55)` |
 | `--lift-3` (remote canvas) | `0 20px 25px -5px rgba(0,0,0,.10), 0 8px 10px -6px rgba(0,0,0,.10)` | `0 24px 40px -8px rgba(0,0,0,.7)` |
 | `--well` (segment tray) | `inset 0 1px 3px rgba(0,0,0,.06), 0 0 0 .5px rgba(10,12,16,.10)` | `inset 0 1px 3px rgba(0,0,0,.4), 0 0 0 .5px rgba(255,255,255,.08)` |
+| `--group` (settings inset group) | `rgba(255,255,255,.55)` | `rgba(255,255,255,.05)` |
+| `--row-selected` (picker row) | `#ffffff` | `rgba(255,255,255,.10)` |
 | `--accent` | `#0a84ff` | `#0a84ff` |
 | `--accent-soft` | `rgba(10,132,255,.18)` | `rgba(10,132,255,.18)` |
 | `--focus-ring` (focus) | `0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent)` | same |
@@ -65,9 +67,9 @@ box-shadow: var(--highlight), var(--hairline), var(--lift-2);
 ```
 Fallbacks: `@supports not (backdrop-filter: blur(1px))` and
 `@media (prefers-reduced-transparency: reduce)` switch every glass surface (bar, nudge,
-panel, picker list, filters, banners, takeover, notice, typer and the glass pills) to
-`--card` (solid) instead of `--glass`. The side panel and its sticky filters then share
-the same solid fill.
+panel, picker list, banners, takeover, notice, typer and the glass pills) to `--card`
+(solid) instead of `--glass`. The side panel then becomes one solid fill from top to
+bottom.
 
 ## Typography
 
@@ -75,7 +77,8 @@ Font stack: `-apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-u
 (Inter stays bundled as the fallback for non-Apple systems). Base 13px/20px. Titles use
 weight 500–600 and negative tracking (`-.02em` at 16–20px, `-.035em` at 32px+). Section
 labels in the panel are 11.5px, weight 500, colour `--quiet`, 0.01em tracking, no
-uppercase. Field labels and panel body text are 13px; status text is 13px/15px.
+uppercase. Field labels and panel body text are 13px; status text is 13px/15px. Hints are
+12px `--quiet`. The turn banner title is 22px/600 at `-.02em`.
 
 ## Components
 
@@ -97,18 +100,34 @@ uppercase. Field labels and panel body text are 13px; status text is 13px/15px.
   below it.
 - **Side panel:** floating glass sheet (`--glass-strong`), 320px wide, radius
   `--r-window`, sits beside the screen with the same gap as the outer margin. One even
-  surface: the sticky `.filters` strip is transparent over the panel with a blurred
-  backdrop and an 8px mask-image fade at its bottom edge, and `.foot` is separated only
-  by a 0.5px hairline. Filter chips rest at half `--tray` and hover to full `--tray`.
-  Sections are separated by space and a small quiet label, not by lines. List rows are
-  `--r-item` and at least 36px tall; the selected row is a white
-  card with `--lift-1` (like Aside's sidebar).
+  surface from top to bottom: the header and `.filters` strip paint nothing of their own,
+  the filters sit above their own scrolling list instead of blurring the panel behind
+  them, and `.foot` is separated only by a 0.5px hairline. Filter chips rest at half
+  `--tray` and hover to full `--tray`.
+- **Settings groups:** each `section` is a small 11.5px quiet label above an inset card:
+  `--group` fill, 12px radius, a .5px `--hairline` ring, rows at least 40px tall with 12px
+  side padding, and .5px `--line` separators inset 12px from the left with none after the
+  last row. Hints sit 4px under the card at 12px `--quiet`. The rule input and Add share
+  one row; the clipboard textarea sits in its card with its two buttons in a row below.
+  Advanced is the same card, its summary a 40px row with a chevron that rotates 90° open.
+- **Activity:** 13px/20px. Group heads use a 20px orb, a 13px/500 name and a quiet 11.5px
+  tabular timestamp; groups are separated by 12px of space, never a rule. Steps hang on a
+  .5px timeline with 6px dots ringed by .5px. Ask cards stay `--r-item` tray cards.
+- **Empty state:** 44px orb, 14px/600 title, 12.5px `--quiet` copy capped at 220px, centred
+  and sitting at about 40% of the pane's height.
 - **Popovers (picker list):** `--glass-strong`, radius `--r-card`, `--lift-2`, open with fade +
-  scale(.98 → 1) from the top right.
+  scale(.98 → 1) from the top right. The trigger is a 32px glass pill; rows are 44px with a
+  22px orb, a 13px/500 name and 12px quiet doing-text; the selected row is a
+  `--row-selected` card with `--lift-1` (dark: `rgba(255,255,255,.10)`).
 - **Banners and toasts (nudge, takeover, notice, turn banner):** glass capsules or cards,
-  centred, never full-width grey strips.
+  centred, never full-width grey strips. Takeover and notice are 40px capsules at 13px
+  (the takeover button inside is 30px). The turn banner is a 16px-radius card inset 12px
+  from the edges, padded 16px 20px, with a 52px orb, a 22px/600 `-.02em` title, a 14px
+  reason and a 12.5px quiet sub; its primary Hand back is a 40px, 15px pill. The flood
+  colour wash stays behind it.
 - **Inputs:** 36px, radius `--r-item`, `--tray` fill, `--hairline`; focus ring
-  `0 0 0 3px var(--accent-soft)` plus `0 0 0 1px var(--accent)`.
+  `0 0 0 3px var(--accent-soft)` plus `0 0 0 1px var(--accent)`. Inside a settings group
+  the rule field and clipboard are borderless rows instead.
 - **Switches:** iOS style, 36×22, on = `--accent` track with a white knob and a subtle
   knob shadow (keep the existing `.switch` class).
 - **Sliders:** the filled track and the white thumb's 1px ring use `--accent`; the
