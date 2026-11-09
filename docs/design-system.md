@@ -35,10 +35,13 @@ Keep all existing token names working (`--page --card --tray --tray-hover --line
 | `--lift-2` (cards, popovers) | `0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.08)` | `0 10px 20px -4px rgba(0,0,0,.55)` |
 | `--lift-3` (screen window) | `0 20px 25px -5px rgba(0,0,0,.10), 0 8px 10px -6px rgba(0,0,0,.10)` | `0 24px 40px -8px rgba(0,0,0,.7)` |
 | `--well` (segment tray) | `inset 0 1px 3px rgba(0,0,0,.06), 0 0 0 .5px rgba(10,12,16,.10)` | `inset 0 1px 3px rgba(0,0,0,.4), 0 0 0 .5px rgba(255,255,255,.08)` |
+| `--body` / `--quiet` (text) | `#4b5059` / `#676d77` | `#a7adb8` / `#8b919d` |
+| `--focus-ring` (focus) | `0 0 0 3px rgba(0,122,255,.25), 0 0 0 .5px color-mix(in srgb, var(--ink) 30%, transparent)` | same |
 | `--ease` | `cubic-bezier(.2,.8,.2,1)` | same |
 | `--r-window` 16px, `--r-card` 14px, `--r-item` 10px, `--r-pill` 999px | | |
 
-Text colours: `--ink` #0a0b0d (#f5f6f8), `--body` #4b5059 (#a7adb8), `--quiet` #7a808a (#7f8591).
+Text colours: `--ink` #0a0b0d (#f5f6f8), `--body` #4b5059 (#a7adb8), `--quiet` #676d77 (#8b919d).
+`--body` and `--quiet` both clear WCAG AA 4.5:1 against glass over the sky in light and dark.
 `--tray` becomes a translucent fill: `rgba(10,12,16,.05)` (`rgba(255,255,255,.06)`),
 `--tray-hover` `rgba(10,12,16,.08)` (`rgba(255,255,255,.10)`).
 
@@ -48,7 +51,9 @@ background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter:
 box-shadow: var(--highlight), var(--hairline), var(--lift-2);
 ```
 Fallbacks: `@supports not (backdrop-filter: blur(1px))` and
-`@media (prefers-reduced-transparency: reduce)` use `--card` (solid) instead of `--glass`.
+`@media (prefers-reduced-transparency: reduce)` switch every glass surface (bar, nudge,
+panel, picker list, filters, banners, takeover, notice, typer and the glass pills) to
+`--card` (solid) instead of `--glass`.
 
 ## Typography
 
