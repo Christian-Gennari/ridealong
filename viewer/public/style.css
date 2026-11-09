@@ -155,7 +155,7 @@ body.turn .bar, .turn-banner, body.turn main { --ink: #000; --on-ink: #fff; --bo
   --lift-1: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px -1px rgba(0,0,0,.08); --lift-2: 0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.08); color: var(--ink); }
 body.turn .status { visibility: hidden; }
 body.turn main { background: none; box-shadow: none; }
-body.turn #screen canvas { box-shadow: 0 0 0 3px #fff; }
+body.turn #screen canvas { box-shadow: 0 0 0 2px rgba(255,255,255,.85), 0 0 0 6px rgba(255,255,255,.18); }
 
 .turn-banner { position: relative; z-index: 1; flex: none; display: flex; align-items: center; gap: 18px; margin: 2px 12px 12px; padding: 16px 20px; border-radius: 16px;
   background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); box-shadow: var(--highlight), var(--hairline), var(--lift-2); animation: rise-in 220ms var(--ease); }

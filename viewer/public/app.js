@@ -463,7 +463,12 @@ const announce = () => {
 
 // With nobody at the wheel, the way in stays on screen.
 const renderTakeover = (working, turn) => {
-  if (view.locked && !working && !turn && view.mode !== "control") {
+  // The turn banner owns the screen while it is up; the takeover capsule waits.
+  if (turn) {
+    $("takeover").hidden = true;
+    return;
+  }
+  if (view.locked && !working && view.mode !== "control") {
     $("takeover-text").textContent = view.elsewhere ? "Nobody is using this tab" : "No agent is working right now";
     $("takeover").hidden = false;
   } else if (!poked) $("takeover").hidden = true;
