@@ -12,7 +12,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icon-192.png">
   <meta name="apple-mobile-web-app-title" content="Ridealong">
-  <link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none' stroke-width='3'%3E%3Cstyle%3Ecircle%7Bstroke:%23000%7D@media (prefers-color-scheme:dark)%7Bcircle%7Bstroke:%23fff%7D%7D%3C/style%3E%3Ccircle cx='11.5' cy='16' r='8.5'/%3E%3Ccircle cx='20.5' cy='16' r='8.5'/%3E%3C/svg%3E">
+  <link rel="icon" id="favicon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' fill='none' stroke-width='2.75'%3E%3Cstyle%3Ecircle%7Bstroke:%230a0b0d%7D@media (prefers-color-scheme:dark)%7Bcircle%7Bstroke:%23f5f6f8%7D%7D%3C/style%3E%3Ccircle cx='11.5' cy='16' r='8.5'/%3E%3Ccircle cx='20.5' cy='16' r='8.5'/%3E%3C/svg%3E">
 </head>
 <body>
   <div class="flood" aria-hidden="true"></div>
@@ -110,51 +110,59 @@
       <div class="pane" id="pane-settings" hidden>
         <section>
           <h3>Picture</h3>
-          <div class="field">
-            <span>Appearance</span>
-            <div class="segments compact" id="appearance">
-              <button data-appearance="system">Auto</button>
-              <button data-appearance="light">Light</button>
-              <button data-appearance="dark">Dark</button>
+          <div class="group-card">
+            <div class="field">
+              <span>Appearance</span>
+              <div class="segments compact" id="appearance">
+                <button data-appearance="system">Auto</button>
+                <button data-appearance="light">Light</button>
+                <button data-appearance="dark">Dark</button>
+              </div>
             </div>
-          </div>
-          <div class="field">
-            <span>Image</span>
-            <div class="segments compact" id="presets">
-              <button data-preset="sharp">Sharp</button>
-              <button data-preset="balanced">Balanced</button>
-              <button data-preset="fast">Fast</button>
+            <div class="field">
+              <span>Image</span>
+              <div class="segments compact" id="presets">
+                <button data-preset="sharp">Sharp</button>
+                <button data-preset="balanced">Balanced</button>
+                <button data-preset="fast">Fast</button>
+              </div>
             </div>
+            <label class="field">Fit to window <input type="checkbox" class="switch" id="fit"></label>
+            <label class="field">Show my cursor <input type="checkbox" class="switch" id="dot-cursor"></label>
           </div>
-          <label class="field">Fit to window <input type="checkbox" class="switch" id="fit"></label>
-          <label class="field">Show my cursor <input type="checkbox" class="switch" id="dot-cursor"></label>
         </section>
 
         <section>
           <h3>When it's your turn</h3>
-          <label class="field">Play a sound <input type="checkbox" class="switch" id="sound"></label>
-          <label class="field">Notify this device, even when it's closed <input type="checkbox" class="switch" id="notifications"></label>
+          <div class="group-card">
+            <label class="field">Play a sound <input type="checkbox" class="switch" id="sound"></label>
+            <label class="field">Notify this device, even when it's closed <input type="checkbox" class="switch" id="notifications"></label>
+          </div>
           <p class="hint" id="notifications-hint" hidden></p>
         </section>
 
         <section>
           <h3>Ask before acting on</h3>
-          <form class="rule-form" id="rule-form">
-            <input id="rule-host" type="text" placeholder="paypal.com" aria-label="Site" autocomplete="off" autocapitalize="off" spellcheck="false">
-            <button class="ghost" type="submit">Add</button>
-          </form>
-          <ul class="rules" id="rules"></ul>
+          <div class="group-card">
+            <form class="rule-form" id="rule-form">
+              <input id="rule-host" type="text" placeholder="paypal.com" aria-label="Site" autocomplete="off" autocapitalize="off" spellcheck="false">
+              <button class="ghost" type="submit">Add</button>
+            </form>
+            <ul class="rules" id="rules"></ul>
+          </div>
           <p class="hint">Agents can read these sites, but need your OK before they click or type there. It lasts 10 minutes and covers subdomains.</p>
         </section>
 
         <section>
           <h3>Clipboard</h3>
-          <textarea id="clipboard" rows="2" placeholder="Copied text appears here. Type or paste to send it to the browser."></textarea>
-          <div class="send-row">
-            <button class="ghost needs-control" id="send-clipboard">Copy to Brave</button>
-            <button class="ghost needs-control" id="type-clipboard">Type it</button>
-            <p class="hint control-hint">Needs Control mode</p>
+          <div class="group-card">
+            <textarea id="clipboard" rows="2" placeholder="Copied text appears here. Type or paste to send it to the browser."></textarea>
+            <div class="send-row">
+              <button class="ghost needs-control" id="send-clipboard">Copy to Brave</button>
+              <button class="ghost needs-control" id="type-clipboard">Type it</button>
+            </div>
           </div>
+          <p class="hint control-hint">Needs Control mode</p>
         </section>
 
         <details>
