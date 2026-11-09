@@ -10,9 +10,9 @@ Ridealong runs a real, logged-in Brave browser on your server or your own comput
 npm install -g @christian-gennari/ridealong && ridealong up
 ```
 
-[![Claude and Codex plan a trip side by side in their own windows on Google Flights and Booking.com, then both need you and take turns](docs/images/demo.webp)](docs/demo.mp4)
+[![Claude and Codex plan a trip side by side in their own windows on Kayak and Booking.com, then both need you and take turns](docs/images/demo.webp)](docs/demo.mp4)
 
-<sub>Real agent sessions on real sites through Ridealong. The steps are scripted, the check is a public test page, pauses are cut and slow stretches are sped up. [Watch the full-size video](docs/demo.mp4).</sub>
+<sub>Real agent sessions on real sites through Ridealong. The steps are scripted, pauses are cut and the film is sped up slightly. [Watch the full-size video](docs/demo.mp4).</sub>
 
 ![Claude working on a real Grafana dashboard in its own window, with two more sessions running](docs/images/working.png)
 
