@@ -35,7 +35,8 @@ Keep all existing token names working (`--page --card --tray --tray-hover --line
 |---|---|---|
 | `--sky` (page background) | `radial-gradient(1200px 600px at 15% -10%, #ffffff 0%, transparent 60%), radial-gradient(900px 500px at 90% 10%, rgba(255,255,255,.85) 0%, transparent 60%), linear-gradient(180deg, #bfe6fb 0%, #dcf1fc 45%, #f3f8fb 100%)` | `radial-gradient(1000px 560px at 18% -12%, rgba(64,84,126,.30) 0%, transparent 62%), linear-gradient(180deg, #0d1421 0%, #090d15 48%, #07080b 100%)` |
 | `--glass` | `rgba(255,255,255,.62)` | `rgba(30,31,36,.62)` |
-| `--glass-strong` (popovers, panel) | `rgba(255,255,255,.78)` | `rgba(30,31,36,.82)` |
+| `--glass-strong` (panel, sheets) | `rgba(255,255,255,.78)` | `rgba(30,31,36,.82)` |
+| `--glass-float` (glass over the remote screen) | `rgba(255,255,255,.97)` | `rgba(32,33,38,.97)` |
 | `--blur` | `blur(24px) saturate(180%)` | same |
 | `--hairline` | `0 0 0 .5px rgba(10,12,16,.16)` | `0 0 0 .5px rgba(255,255,255,.12)` |
 | `--highlight` | `inset 0 1px 0 rgba(255,255,255,.8)` | `inset 0 1px 0 rgba(255,255,255,.06)` |
@@ -53,6 +54,8 @@ Keep all existing token names working (`--page --card --tray --tray-hover --line
 | `--ease` | `cubic-bezier(.2,.8,.2,1)` | same |
 | `--r-window` 16px, `--r-card` 14px, `--r-item` 10px, `--r-pill` 999px | | |
 
+Use `--glass-float` for glass that floats over the remote browser screen rather than the sky (picker list, takeover, notice, and on phones the panel sheet and turn banner); it stays nearly opaque so page pixels never bleed through its text, with the same `--blur`, `--hairline` and lift.
+
 Text colours: `--ink` #0a0b0d (#f5f6f8), `--body` #4b5059 (#a7adb8), `--quiet` #676d77 (#8b919d).
 `--body` and `--quiet` both clear WCAG AA 4.5:1 against glass over the sky in light and dark.
 `--tray` becomes a translucent fill: `rgba(10,12,16,.05)` (`rgba(255,255,255,.06)`),
@@ -68,7 +71,7 @@ box-shadow: var(--highlight), var(--hairline), var(--lift-2);
 Fallbacks: `@supports not (backdrop-filter: blur(1px))` and
 `@media (prefers-reduced-transparency: reduce)` switch every glass surface (bar, nudge,
 panel, picker list, banners, takeover, notice, typer and the glass pills) to `--card`
-(solid) instead of `--glass`. The side panel then becomes one solid fill from top to
+(solid) instead of `--glass`/`--glass-float`. The side panel then becomes one solid fill from top to
 bottom.
 
 ## Typography
@@ -98,7 +101,8 @@ uppercase. Field labels and panel body text are 13px; status text is 13px/15px. 
   12px, clipped corners, `--hairline` + `--lift-3`; the letterbox around it shows the
   sky, and the lift can spill into the gutter. No card fill or reflection band behind or
   below it.
-- **Side panel:** floating glass sheet (`--glass-strong`), 320px wide, radius
+- **Side panel:** floating glass sheet (`--glass-strong`; `--glass-float` on phones, where
+  it covers the screen), 320px wide, radius
   `--r-window`, sits beside the screen with the same gap as the outer margin. One even
   surface from top to bottom: the header and `.filters` strip paint nothing of their own,
   the filters sit above their own scrolling list instead of blurring the panel behind
@@ -115,12 +119,14 @@ uppercase. Field labels and panel body text are 13px; status text is 13px/15px. 
   .5px timeline with 6px dots ringed by .5px. Ask cards stay `--r-item` tray cards.
 - **Empty state:** 44px orb, 14px/600 title, 12.5px `--quiet` copy capped at 220px, centred
   and sitting at about 40% of the pane's height.
-- **Popovers (picker list):** `--glass-strong`, radius `--r-card`, `--lift-2`, open with fade +
+- **Popovers (picker list):** `--glass-float`, radius `--r-card`, `--lift-2`, open with fade +
   scale(.98 → 1) from the top right. The trigger is a 32px glass pill; rows are 44px with a
-  22px orb, a 13px/500 name and 12px quiet doing-text; the selected row is a
-  `--row-selected` card with `--lift-1` (dark: `rgba(255,255,255,.10)`).
+  22px orb, a 13px/500 name and 12px quiet doing-text, no fill of their own until hover
+  (`--tray-hover`); the selected row is a `--row-selected` card with `--lift-1` (dark:
+  `rgba(255,255,255,.10)`).
 - **Banners and toasts (nudge, takeover, notice, turn banner):** glass capsules or cards,
-  centred, never full-width grey strips. Takeover and notice are 40px capsules at 13px
+  centred, never full-width grey strips; takeover, notice and the phone turn banner use
+  `--glass-float` because they sit over the screen. Takeover and notice are 40px capsules at 13px
   (the takeover button inside is 30px). The turn banner is a 16px-radius card inset 12px
   from the edges, padded 16px 20px, with a 52px orb, a 22px/600 `-.02em` title, a 14px
   reason and a 12.5px quiet sub; its primary Hand back is a 40px, 15px pill. The flood
