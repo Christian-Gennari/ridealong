@@ -8,6 +8,7 @@
   --sky: radial-gradient(1200px 600px at 15% -10%, #ffffff 0%, transparent 60%), radial-gradient(900px 500px at 90% 10%, rgba(255,255,255,.85) 0%, transparent 60%), linear-gradient(180deg, #bfe6fb 0%, #dcf1fc 45%, #f3f8fb 100%);
   --glass: rgba(255,255,255,.62);
   --glass-strong: rgba(255,255,255,.78);
+  --glass-float: rgba(255,255,255,.92);
   --group: rgba(255,255,255,.55);
   --row-selected: #ffffff;
   --blur: blur(24px) saturate(180%);
@@ -31,6 +32,7 @@
     --sky: radial-gradient(1000px 560px at 18% -12%, rgba(64,84,126,.30) 0%, transparent 62%), linear-gradient(180deg, #0d1421 0%, #090d15 48%, #07080b 100%);
     --glass: rgba(30,31,36,.62);
     --glass-strong: rgba(30,31,36,.82);
+    --glass-float: rgba(32,33,38,.92);
     --group: rgba(255,255,255,.05);
     --row-selected: rgba(255,255,255,.10);
     --hairline: 0 0 0 .5px rgba(255,255,255,.12);
@@ -48,6 +50,7 @@
   --sky: radial-gradient(1000px 560px at 18% -12%, rgba(64,84,126,.30) 0%, transparent 62%), linear-gradient(180deg, #0d1421 0%, #090d15 48%, #07080b 100%);
   --glass: rgba(30,31,36,.62);
   --glass-strong: rgba(30,31,36,.82);
+  --glass-float: rgba(32,33,38,.92);
   --group: rgba(255,255,255,.05);
   --row-selected: rgba(255,255,255,.10);
   --hairline: 0 0 0 .5px rgba(255,255,255,.12);
@@ -122,14 +125,14 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: roun
 .stack { display: flex; }
 .stack .orb + .orb { margin-left: -7px; box-shadow: 0 0 0 2px var(--tray); }
 .picker-list { position: absolute; right: 0; top: calc(100% + 8px); z-index: 7; width: 320px; max-height: min(420px, 70vh); overflow-y: auto; margin: 0; padding: 6px; list-style: none;
-  border-radius: var(--r-card); background: var(--glass-strong); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border-radius: var(--r-card); background: var(--glass-float); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
   box-shadow: var(--highlight), var(--hairline), var(--lift-2); transform-origin: top right; animation: picker-in 180ms var(--ease); }
 @keyframes picker-in { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: scale(1); } }
 @keyframes panel-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes rise-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes takeover-in { from { opacity: 0; transform: translateX(-50%) translateY(4px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-.picker-list button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 5px 10px; border-radius: var(--r-item); text-align: left; transition: background 120ms var(--ease), box-shadow 120ms var(--ease), transform 120ms var(--ease); }
-.picker-list button:hover, .picker-list button:focus-visible { background: var(--tray); }
+.picker-list button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 5px 10px; border-radius: var(--r-item); background: transparent; text-align: left; transition: background 120ms var(--ease), box-shadow 120ms var(--ease), transform 120ms var(--ease); }
+.picker-list button:hover, .picker-list button:focus-visible { background: var(--tray-hover); }
 .picker-list button[aria-selected="true"] { background: var(--row-selected); color: var(--ink); box-shadow: var(--lift-1), var(--selected-ring); }
 .picker-list .orb { width: 22px; height: 22px; }
 .picker-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 17px; }
@@ -151,7 +154,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: roun
 body.turn .flood { opacity: 1; }
 body.turn { background: var(--c); }
 body.turn .bar, .turn-banner, body.turn main { --ink: #000; --on-ink: #fff; --body: rgba(0,0,0,.72); --quiet: rgba(0,0,0,.6); --tray: rgba(255,255,255,.34); --tray-hover: rgba(255,255,255,.55); --line: rgba(0,0,0,.14); --selected: #fff; --row-selected: #fff; --card: #fff; --page: #fff;
-  --glass: rgba(255,255,255,.62); --glass-strong: rgba(255,255,255,.78); --hairline: 0 0 0 .5px rgba(10,12,16,.16); --highlight: inset 0 1px 0 rgba(255,255,255,.8);
+  --glass: rgba(255,255,255,.62); --glass-strong: rgba(255,255,255,.78); --glass-float: rgba(255,255,255,.92); --hairline: 0 0 0 .5px rgba(10,12,16,.16); --highlight: inset 0 1px 0 rgba(255,255,255,.8);
   --lift-1: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px -1px rgba(0,0,0,.08); --lift-2: 0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.08); color: var(--ink); }
 body.turn .status { visibility: hidden; }
 body.turn main { background: none; box-shadow: none; }
@@ -198,10 +201,10 @@ main { position: relative; flex: 1; min-width: 0; padding: 0; border-radius: var
 #screen > div { position: absolute; inset: 0; border-radius: 12px; overflow: visible !important; }
 #screen canvas { border-radius: 12px; overflow: hidden; box-shadow: var(--hairline), var(--lift-3); }
 .notice { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2; display: flex; align-items: center; justify-content: center; height: 40px; padding: 0 16px; border-radius: var(--r-pill); color: var(--quiet); font-size: 13px; pointer-events: none;
-  background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); box-shadow: var(--highlight), var(--hairline), var(--lift-1); }
+  background: var(--glass-float); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); box-shadow: var(--highlight), var(--hairline), var(--lift-1); }
 
 .takeover { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 3; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 5px 0 14px; border-radius: var(--r-pill);
-  background: var(--glass-strong); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); color: var(--body); font-size: 13px; white-space: nowrap;
+  background: var(--glass-float); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); color: var(--body); font-size: 13px; white-space: nowrap;
   box-shadow: var(--highlight), var(--hairline), var(--lift-2); animation: takeover-in 220ms var(--ease); }
 .takeover svg { width: 14px; height: 14px; stroke-width: 1.75; }
 .takeover button { height: 30px; margin-left: 2px; padding: 0 14px; border-radius: var(--r-pill); background: var(--ink); color: var(--on-ink); font-size: 13px; font-weight: 500; transition: background 120ms var(--ease), transform 120ms var(--ease); }
@@ -354,9 +357,8 @@ input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border: 0; bo
 
 /* Tablet and phone: the panel floats over the screen as a full-height glass sheet. */
 @media (max-width: 900px) {
-  .panel { position: fixed; inset: 16px; z-index: 6; width: auto; max-height: none; background: rgba(255,255,255,.94); }
-  :root[data-theme="dark"] .panel { background: rgba(30,31,36,.94); }
-  .turn-banner { flex-direction: column; align-items: stretch; gap: 12px; }
+  .panel { position: fixed; inset: 16px; z-index: 6; width: auto; max-height: none; background: var(--glass-float); }
+  .turn-banner { flex-direction: column; align-items: stretch; gap: 12px; background: var(--glass-float); }
   .turn-actions { flex-wrap: wrap; }
   .turn-actions .ghost { flex: 0 1 auto; justify-content: center; }
   .turn-actions .primary { flex: 1 1 100%; width: 100%; justify-content: center; }
@@ -365,10 +367,6 @@ input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border: 0; bo
   body:has(.panel:not([hidden])) .nudge,
   body:has(.panel:not([hidden])) .turn-banner { visibility: hidden; }
 }
-@media (max-width: 900px) and (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .panel { background: rgba(30,31,36,.94); }
-}
-
 @media (max-width: 760px) {
   .bar { flex-wrap: wrap; height: auto; margin: 8px; padding: 10px 12px; gap: 10px 12px; }
   .status { flex: 1 1 100%; order: 3; align-items: flex-start; flex-wrap: wrap; gap: 0 12px; padding-left: 0; border-left: 0; }
