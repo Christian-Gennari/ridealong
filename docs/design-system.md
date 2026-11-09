@@ -1,22 +1,30 @@
 # Viewer design system: glass
 
 The viewer (`viewer/public/`) looks like a calm macOS app floating over a soft sky,
-inspired by aside.com: frosted glass surfaces, hairline edges, layered soft shadows,
-pill controls, a black primary button and lots of air. The agent orbs stay the only
-saturated colour in the interface; the sky is pale and quiet behind everything.
+inspired by Linear, Arc, Raycast and macOS Sonoma: frosted glass surfaces, hairline
+edges, layered soft shadows, pill controls, a black primary button and lots of air.
+The agent orbs stay the only saturated identity colour; a single blue accent is
+reserved for interaction (focus, switches, sliders, selection and link hover).
 
 ## Principles
 
 1. **Glass over sky.** The page background is a soft sky. Every chrome surface (top bar,
-   side panel, popovers, banners, toasts) is frosted glass floating above it.
-2. **The browser is the hero.** The remote screen sits in a clean window card with a
-   large radius and a deep, soft shadow. Chrome never competes with it.
+   side panel, popovers, banners, toasts) is frosted glass floating above it. Glass
+   surfaces in dark mode share one neutral tint so they read as the same material.
+2. **The browser is the hero.** The remote canvas itself is the window: a 12px radius,
+   a hairline and `--lift-3`, floating directly over the sky. There is no white card
+   behind it and no shadow band under it; letterboxing shows the sky.
 3. **Hairlines, not borders.** Edges are 0.5px rings drawn with box-shadow, plus a 1px
    inner top highlight on glass. No 1px grey borders.
 4. **Pills and black.** Buttons and segmented controls are pills. The one primary action
-   is solid ink (black in light mode, near-white in dark mode).
-5. **Quiet motion.** 160–240ms, `cubic-bezier(.2,.8,.2,1)`. Popovers fade and scale from
-   0.98. Respect `prefers-reduced-motion` and `prefers-reduced-transparency`.
+   is solid ink (black in light mode, near-white in dark mode). The accent is only for
+   interactive state, never for surface fill.
+5. **Quiet motion.** 160–240ms for entrances and popovers, `cubic-bezier(.2,.8,.2,1)`.
+   Hovers are a 4–6% fill change at 120ms. Popovers fade and scale from 0.98. Respect
+   `prefers-reduced-motion` and `prefers-reduced-transparency`.
+6. **One geometry.** Pills for buttons and segments, 10px for inputs and rows, 14px for
+   cards, 16px for the window and panel (the remote canvas is 12px). Icons are drawn at
+   1.75 stroke width everywhere.
 
 ## Tokens (`:root`, light; dark values in parentheses)
 
@@ -25,18 +33,21 @@ Keep all existing token names working (`--page --card --tray --tray-hover --line
 
 | Token | Light | Dark |
 |---|---|---|
-| `--sky` (page background) | `radial-gradient(1200px 600px at 15% -10%, #ffffff 0%, transparent 60%), radial-gradient(900px 500px at 90% 10%, rgba(255,255,255,.85) 0%, transparent 60%), linear-gradient(180deg, #bfe6fb 0%, #dcf1fc 45%, #f3f8fb 100%)` | `radial-gradient(1000px 600px at 20% -10%, rgba(80,110,170,.35) 0%, transparent 60%), linear-gradient(180deg, #0c1424 0%, #0a0f1a 50%, #08090d 100%)` |
-| `--glass` | `rgba(255,255,255,.62)` | `rgba(28,30,36,.58)` |
-| `--glass-strong` (popovers, panel) | `rgba(255,255,255,.78)` | `rgba(30,32,38,.78)` |
+| `--sky` (page background) | `radial-gradient(1200px 600px at 15% -10%, #ffffff 0%, transparent 60%), radial-gradient(900px 500px at 90% 10%, rgba(255,255,255,.85) 0%, transparent 60%), linear-gradient(180deg, #bfe6fb 0%, #dcf1fc 45%, #f3f8fb 100%)` | `radial-gradient(1000px 560px at 18% -12%, rgba(64,84,126,.30) 0%, transparent 62%), linear-gradient(180deg, #0d1421 0%, #090d15 48%, #07080b 100%)` |
+| `--glass` | `rgba(255,255,255,.62)` | `rgba(30,31,36,.62)` |
+| `--glass-strong` (popovers, panel) | `rgba(255,255,255,.78)` | `rgba(30,31,36,.82)` |
 | `--blur` | `blur(24px) saturate(180%)` | same |
 | `--hairline` | `0 0 0 .5px rgba(10,12,16,.16)` | `0 0 0 .5px rgba(255,255,255,.12)` |
 | `--highlight` | `inset 0 1px 0 rgba(255,255,255,.8)` | `inset 0 1px 0 rgba(255,255,255,.06)` |
 | `--lift-1` (controls) | `0 1px 3px rgba(0,0,0,.08), 0 1px 2px -1px rgba(0,0,0,.08)` | `0 1px 3px rgba(0,0,0,.5)` |
 | `--lift-2` (cards, popovers) | `0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.08)` | `0 10px 20px -4px rgba(0,0,0,.55)` |
-| `--lift-3` (screen window) | `0 20px 25px -5px rgba(0,0,0,.10), 0 8px 10px -6px rgba(0,0,0,.10)` | `0 24px 40px -8px rgba(0,0,0,.7)` |
+| `--lift-3` (remote canvas) | `0 20px 25px -5px rgba(0,0,0,.10), 0 8px 10px -6px rgba(0,0,0,.10)` | `0 24px 40px -8px rgba(0,0,0,.7)` |
 | `--well` (segment tray) | `inset 0 1px 3px rgba(0,0,0,.06), 0 0 0 .5px rgba(10,12,16,.10)` | `inset 0 1px 3px rgba(0,0,0,.4), 0 0 0 .5px rgba(255,255,255,.08)` |
+| `--accent` | `#0a84ff` | `#0a84ff` |
+| `--accent-soft` | `rgba(10,132,255,.18)` | `rgba(10,132,255,.18)` |
+| `--focus-ring` (focus) | `0 0 0 3px var(--accent-soft), 0 0 0 1px var(--accent)` | same |
+| `--selected-ring` | `0 0 0 0 transparent` | `0 0 0 .5px rgba(255,255,255,.08)` |
 | `--body` / `--quiet` (text) | `#4b5059` / `#676d77` | `#a7adb8` / `#8b919d` |
-| `--focus-ring` (focus) | `0 0 0 3px rgba(0,122,255,.25), 0 0 0 .5px color-mix(in srgb, var(--ink) 30%, transparent)` | same |
 | `--ease` | `cubic-bezier(.2,.8,.2,1)` | same |
 | `--r-window` 16px, `--r-card` 14px, `--r-item` 10px, `--r-pill` 999px | | |
 
@@ -44,6 +55,8 @@ Text colours: `--ink` #0a0b0d (#f5f6f8), `--body` #4b5059 (#a7adb8), `--quiet` #
 `--body` and `--quiet` both clear WCAG AA 4.5:1 against glass over the sky in light and dark.
 `--tray` becomes a translucent fill: `rgba(10,12,16,.05)` (`rgba(255,255,255,.06)`),
 `--tray-hover` `rgba(10,12,16,.08)` (`rgba(255,255,255,.10)`).
+In dark mode `--selected` is `rgba(255,255,255,.12)`; selected segments add
+`--selected-ring`, a 0.5px `rgba(255,255,255,.08)` ring.
 
 A glass surface is:
 ```css
@@ -53,38 +66,57 @@ box-shadow: var(--highlight), var(--hairline), var(--lift-2);
 Fallbacks: `@supports not (backdrop-filter: blur(1px))` and
 `@media (prefers-reduced-transparency: reduce)` switch every glass surface (bar, nudge,
 panel, picker list, filters, banners, takeover, notice, typer and the glass pills) to
-`--card` (solid) instead of `--glass`.
+`--card` (solid) instead of `--glass`. The side panel and its sticky filters then share
+the same solid fill.
 
 ## Typography
 
 Font stack: `-apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, "Segoe UI", sans-serif`
-(Inter stays bundled as the fallback for non-Apple systems). Base 14px/22px. Titles use
-weight 500–600 and negative tracking (`-.02em` at 20px+, `-.035em` at 32px+). Small labels
-(section headers in the panel) are 12px, weight 500, colour `--quiet`, no uppercase.
+(Inter stays bundled as the fallback for non-Apple systems). Base 13px/20px. Titles use
+weight 500–600 and negative tracking (`-.02em` at 16–20px, `-.035em` at 32px+). Section
+labels in the panel are 11.5px, weight 500, colour `--quiet`, 0.01em tracking, no
+uppercase. Field labels and panel body text are 13px; status text is 13px/15px.
 
 ## Components
 
 - **Top bar:** a floating glass capsule inset 10–12px from the window edges, radius
-  `--r-card`, height 56px. Brand left, status centre-left, controls right.
-- **Segmented control:** tray with `--well`, radius pill, 3px padding. The selected
-  segment is solid white (`--selected`, dark: `rgba(255,255,255,.14)`) with `--lift-1`.
-  The Control mode, when selected, is solid ink.
+  `--r-card`, height 48px. Brand left, status centre-left, controls right. Mark 20px,
+  wordmark 16px/600 at `-.02em`, status orb 22px, icon buttons 32px.
+- **Segmented control:** tray with `--well`, radius pill, 3px padding, 28px tall with
+  12.5px labels. The selected segment is solid white (`--selected`, dark:
+  `rgba(255,255,255,.12)`) with `--lift-1` and `--selected-ring`. The Control mode, when
+  selected, is solid ink.
 - **Buttons:** `.primary` solid ink pill with `--lift-2`; `.ghost` glass pill with
-  `--hairline`; `.icon` 34px circle, transparent until hover, then `--tray`.
+  `--hairline`; `.icon` 32px circle, transparent until hover, then `--tray`. Every hover
+  is a 120ms, 4–6% fill change.
 - **Badge / tag:** pill, 12px, `box-shadow: inset 0 0 0 1px rgba(10,12,16,.18)`.
-- **Screen window:** card with radius `--r-window`, `--hairline` + `--lift-3`,
-  `overflow: hidden`, solid `--card` fill behind the canvas (no glass).
-- **Side panel:** floating glass sheet (`--glass-strong`), radius `--r-window`, sits beside
-  the screen with the same gap as the outer margin. Sections are separated by space and a
-  small quiet label, not by lines. List rows are `--r-item`; the selected row is a white
+- **Screen window:** `main` is transparent, has no padding or shadow clipping, and sits
+  flush with the workspace's outer margin. The remote canvas in `#screen` gets radius
+  12px, clipped corners, `--hairline` + `--lift-3`; the letterbox around it shows the
+  sky, and the lift can spill into the gutter. No card fill or reflection band behind or
+  below it.
+- **Side panel:** floating glass sheet (`--glass-strong`), 320px wide, radius
+  `--r-window`, sits beside the screen with the same gap as the outer margin. One even
+  surface: the sticky `.filters` strip is transparent over the panel with a blurred
+  backdrop and an 8px mask-image fade at its bottom edge, and `.foot` is separated only
+  by a 0.5px hairline. Filter chips rest at half `--tray` and hover to full `--tray`.
+  Sections are separated by space and a small quiet label, not by lines. List rows are
+  `--r-item` and at least 36px tall; the selected row is a white
   card with `--lift-1` (like Aside's sidebar).
 - **Popovers (picker list):** `--glass-strong`, radius `--r-card`, `--lift-2`, open with fade +
   scale(.98 → 1) from the top right.
 - **Banners and toasts (nudge, takeover, notice, turn banner):** glass capsules or cards,
   centred, never full-width grey strips.
 - **Inputs:** 36px, radius `--r-item`, `--tray` fill, `--hairline`; focus ring
-  `0 0 0 3px rgba(0,122,255,.25)` plus hairline in `--ink` 30%.
-- **Switches:** iOS style, 36×22, on = `--ink` track (keep the existing `.switch` class).
+  `0 0 0 3px var(--accent-soft)` plus `0 0 0 1px var(--accent)`.
+- **Switches:** iOS style, 36×22, on = `--accent` track with a white knob and a subtle
+  knob shadow (keep the existing `.switch` class).
+- **Sliders:** the filled track and the white thumb's 1px ring use `--accent`; the
+  unfilled track is `--tray-hover`.
+- **Links:** `.link` keeps ink text, and hovers to `--accent` over a 4–6% `--tray` fill.
+- **Selection:** `::selection` tints only the background with `--accent-soft`, so text on
+  solid-ink buttons keeps its own `--on-ink` colour and stays readable.
+- **Icons:** all inline SVG uses stroke width 1.75.
 
 ## Keep
 

@@ -545,6 +545,11 @@ const bind = (id, key, apply) => {
   const show = () => {
     if (isBox) el.checked = settings[key]; else el.value = settings[key];
     if (out) out.textContent = settings[key];
+    if (el.type === "range") {
+      const min = Number(el.min || 0);
+      const span = Number(el.max || 100) - min;
+      el.style.setProperty("--fill", `${span > 0 ? ((Number(el.value) - min) / span) * 100 : 0}%`);
+    }
   };
   show();
   el.addEventListener("input", () => {
