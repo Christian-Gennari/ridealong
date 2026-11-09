@@ -36,7 +36,7 @@ Keep all existing token names working (`--page --card --tray --tray-hover --line
 | `--sky` (page background) | `radial-gradient(1200px 600px at 15% -10%, #ffffff 0%, transparent 60%), radial-gradient(900px 500px at 90% 10%, rgba(255,255,255,.85) 0%, transparent 60%), linear-gradient(180deg, #bfe6fb 0%, #dcf1fc 45%, #f3f8fb 100%)` | `radial-gradient(1000px 560px at 18% -12%, rgba(64,84,126,.30) 0%, transparent 62%), linear-gradient(180deg, #0d1421 0%, #090d15 48%, #07080b 100%)` |
 | `--glass` | `rgba(255,255,255,.62)` | `rgba(30,31,36,.62)` |
 | `--glass-strong` (panel, sheets) | `rgba(255,255,255,.78)` | `rgba(30,31,36,.82)` |
-| `--glass-float` (glass over the remote screen) | `rgba(255,255,255,.92)` | `rgba(32,33,38,.92)` |
+| `--glass-float` (glass over the remote screen) | `rgba(255,255,255,.97)` | `rgba(32,33,38,.97)` |
 | `--blur` | `blur(24px) saturate(180%)` | same |
 | `--hairline` | `0 0 0 .5px rgba(10,12,16,.16)` | `0 0 0 .5px rgba(255,255,255,.12)` |
 | `--highlight` | `inset 0 1px 0 rgba(255,255,255,.8)` | `inset 0 1px 0 rgba(255,255,255,.06)` |

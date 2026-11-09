@@ -8,7 +8,7 @@
   --sky: radial-gradient(1200px 600px at 15% -10%, #ffffff 0%, transparent 60%), radial-gradient(900px 500px at 90% 10%, rgba(255,255,255,.85) 0%, transparent 60%), linear-gradient(180deg, #bfe6fb 0%, #dcf1fc 45%, #f3f8fb 100%);
   --glass: rgba(255,255,255,.62);
   --glass-strong: rgba(255,255,255,.78);
-  --glass-float: rgba(255,255,255,.92);
+  --glass-float: rgba(255,255,255,.97);
   --group: rgba(255,255,255,.55);
   --row-selected: #ffffff;
   --blur: blur(24px) saturate(180%);
@@ -32,7 +32,7 @@
     --sky: radial-gradient(1000px 560px at 18% -12%, rgba(64,84,126,.30) 0%, transparent 62%), linear-gradient(180deg, #0d1421 0%, #090d15 48%, #07080b 100%);
     --glass: rgba(30,31,36,.62);
     --glass-strong: rgba(30,31,36,.82);
-    --glass-float: rgba(32,33,38,.92);
+    --glass-float: rgba(32,33,38,.97);
     --group: rgba(255,255,255,.05);
     --row-selected: rgba(255,255,255,.10);
     --hairline: 0 0 0 .5px rgba(255,255,255,.12);
@@ -50,7 +50,7 @@
   --sky: radial-gradient(1000px 560px at 18% -12%, rgba(64,84,126,.30) 0%, transparent 62%), linear-gradient(180deg, #0d1421 0%, #090d15 48%, #07080b 100%);
   --glass: rgba(30,31,36,.62);
   --glass-strong: rgba(30,31,36,.82);
-  --glass-float: rgba(32,33,38,.92);
+  --glass-float: rgba(32,33,38,.97);
   --group: rgba(255,255,255,.05);
   --row-selected: rgba(255,255,255,.10);
   --hairline: 0 0 0 .5px rgba(255,255,255,.12);
@@ -154,7 +154,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: roun
 body.turn .flood { opacity: 1; }
 body.turn { background: var(--c); }
 body.turn .bar, .turn-banner, body.turn main { --ink: #000; --on-ink: #fff; --body: rgba(0,0,0,.72); --quiet: rgba(0,0,0,.6); --tray: rgba(255,255,255,.34); --tray-hover: rgba(255,255,255,.55); --line: rgba(0,0,0,.14); --selected: #fff; --row-selected: #fff; --card: #fff; --page: #fff;
-  --glass: rgba(255,255,255,.62); --glass-strong: rgba(255,255,255,.78); --glass-float: rgba(255,255,255,.92); --hairline: 0 0 0 .5px rgba(10,12,16,.16); --highlight: inset 0 1px 0 rgba(255,255,255,.8);
+  --glass: rgba(255,255,255,.62); --glass-strong: rgba(255,255,255,.78); --glass-float: rgba(255,255,255,.97); --hairline: 0 0 0 .5px rgba(10,12,16,.16); --highlight: inset 0 1px 0 rgba(255,255,255,.8);
   --lift-1: 0 1px 3px rgba(0,0,0,.08), 0 1px 2px -1px rgba(0,0,0,.08); --lift-2: 0 10px 15px -3px rgba(0,0,0,.08), 0 4px 6px -4px rgba(0,0,0,.08); color: var(--ink); }
 body.turn .status { visibility: hidden; }
 body.turn main { background: none; box-shadow: none; }
